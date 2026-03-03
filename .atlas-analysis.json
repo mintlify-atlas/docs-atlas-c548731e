@@ -1,0 +1,101 @@
+{
+  "projectType": "saas",
+  "projectName": "Ownstash Downloader",
+  "projectDescription": "Desktop-first media downloader powered by yt-dlp and SpotDL, built for fast local downloads from 1000+ supported platforms.",
+  "theme": "aspen",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#6D28D9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "installation"]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/downloads",
+              "features/queue-management",
+              "features/vault",
+              "features/browser-extension",
+              "features/system-integration"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/settings",
+              "configuration/download-options",
+              "configuration/engine-management",
+              "configuration/firebase-setup"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/architecture",
+              "advanced/snde-engine",
+              "advanced/building-from-source",
+              "advanced/release-automation"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Tauri Commands",
+            "pages": [
+              "api/commands/downloads",
+              "api/commands/vault",
+              "api/commands/settings",
+              "api/commands/spotify"
+            ]
+          },
+          {
+            "group": "Events",
+            "pages": ["api/events"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Download media from 1000+ platforms via yt-dlp",
+    "Spotify downloads via SpotDL",
+    "PIN-protected encrypted vault storage (AES-256-GCM)",
+    "Download queue and history management",
+    "Browser extension for one-click downloads",
+    "System tray integration with notifications",
+    "Auto-updater with signed releases",
+    "SNDE (Smart Network Download Engine) acceleration",
+    "Custom download options (quality, format, subtitles)",
+    "FFmpeg integration for media processing"
+  ],
+  "publicApiSurface": [
+    "start_download",
+    "cancel_download",
+    "get_media_info",
+    "vault_setup",
+    "vault_unlock",
+    "vault_lock",
+    "vault_add_file",
+    "vault_list_files",
+    "vault_decrypt_file",
+    "get_downloads",
+    "get_search_history",
+    "get_settings",
+    "update_setting",
+    "spotify_start_download",
+    "spotify_get_track_info",
+    "check_for_updates",
+    "install_update",
+    "get_yt_dlp_info",
+    "update_yt_dlp"
+  ]
+}
