@@ -1,0 +1,400 @@
+---
+title: Settings Commands
+description: Tauri commands for managing application settings and utilities
+---
+
+Commands for managing app settings, file operations, and system utilities.
+
+## get_setting
+
+Get a setting value by key.
+
+```typescript
+const value = await invoke<string | null>('get_setting', { key: string })
+```
+
+<ParamField path="key" type="string" required>
+  Setting key name
+</ParamField>
+
+<ResponseField name="value" type="string | null">
+  Setting value or null if not found
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const downloadPath = await invoke<string | null>('get_setting', {
+  key: 'download_path'
+})
+
+if (downloadPath) {
+  console.log(`Download path: ${downloadPath}`)
+} else {
+  console.log('Using default download path')
+}
+```
+
+---
+
+## get_all_settings
+
+Get all settings as key-value pairs.
+
+```typescript
+const settings = await invoke<Setting[]>('get_all_settings')
+```
+
+<ResponseField name="Setting[]" type="array">
+  <Expandable title="Setting properties">
+    <ResponseField name="key" type="string">
+      Setting key
+    </ResponseField>
+    
+    <ResponseField name="value" type="string">
+      Setting value
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const settings = await invoke<Setting[]>('get_all_settings')
+
+const settingsMap = Object.fromEntries(
+  settings.map(s => [s.key, s.value])
+)
+
+console.log(settingsMap)
+```
+
+---
+
+## save_setting
+
+Save or update a setting.
+
+```typescript
+await invoke('save_setting', { key: string, value: string })
+```
+
+<ParamField path="key" type="string" required>
+  Setting key name
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  Setting value (as string)
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('save_setting', {
+  key: 'download_path',
+  value: '/Users/me/Downloads'
+})
+
+await invoke('save_setting', {
+  key: 'audio_quality',
+  value: '320k'
+})
+
+await invoke('save_setting', {
+  key: 'embed_metadata',
+  value: 'true'
+})
+```
+
+---
+
+## delete_setting
+
+Delete a setting.
+
+```typescript
+await invoke('delete_setting', { key: string })
+```
+
+<ParamField path="key" type="string" required>
+  Setting key to delete
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('delete_setting', { key: 'custom_format' })
+```
+
+---
+
+## open_folder
+
+Open a folder in the system file explorer, optionally highlighting a file.
+
+```typescript
+await invoke('open_folder', {
+  path: string,
+  file_name?: string
+})
+```
+
+<ParamField path="path" type="string" required>
+  Directory path to open
+</ParamField>
+
+<ParamField path="file_name" type="string">
+  Optional filename to highlight/select
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Opens folder in Finder/Explorer/file manager
+</ResponseField>
+
+### Platform Behavior
+
+- **Windows**: Uses `explorer.exe /select,<file>` to highlight file
+- **macOS**: Uses `open -R <file>` to reveal in Finder
+- **Linux**: Opens parent directory with `xdg-open` (no file selection)
+
+### Usage Example
+
+```typescript
+// Open folder
+await invoke('open_folder', {
+  path: '/Users/me/Downloads'
+})
+
+// Open folder and highlight file
+await invoke('open_folder', {
+  path: '/Users/me/Downloads',
+  file_name: 'video.mp4'
+})
+```
+
+---
+
+## get_default_download_path
+
+Get the system's default download folder.
+
+```typescript
+const defaultPath = await invoke<string>('get_default_download_path')
+```
+
+<ResponseField name="defaultPath" type="string">
+  Path to user's Downloads folder
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const path = await invoke<string>('get_default_download_path')
+console.log(`Default downloads: ${path}`)
+// Windows: C:\Users\Username\Downloads
+// macOS: /Users/username/Downloads
+// Linux: /home/username/Downloads
+```
+
+---
+
+## get_download_folder_size
+
+Calculate total size of a download folder.
+
+```typescript
+const sizeBytes = await invoke<number>('get_download_folder_size', {
+  path: string
+})
+```
+
+<ParamField path="path" type="string" required>
+  Folder path to analyze
+</ParamField>
+
+<ResponseField name="sizeBytes" type="number">
+  Total size in bytes
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const bytes = await invoke<number>('get_download_folder_size', {
+  path: '/Users/me/Downloads'
+})
+
+const mb = (bytes / 1024 / 1024).toFixed(2)
+console.log(`Folder size: ${mb} MB`)
+```
+
+---
+
+## transcode_for_playback
+
+Transcode a media file to MP4 for web playback.
+
+```typescript
+const result = await invoke<TranscodeResult>('transcode_for_playback', {
+  input_path: string,
+  force?: boolean
+})
+```
+
+<ParamField path="input_path" type="string" required>
+  Path to media file
+</ParamField>
+
+<ParamField path="force" type="boolean">
+  Force transcode even if format is supported (default: false)
+</ParamField>
+
+<ResponseField name="TranscodeResult" type="object">
+  <Expandable title="properties">
+    <ResponseField name="output_path" type="string">
+      Path to transcoded file (or original if not transcoded)
+    </ResponseField>
+    
+    <ResponseField name="was_transcoded" type="boolean">
+      Whether file was actually transcoded
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const result = await invoke<TranscodeResult>('transcode_for_playback', {
+  input_path: '/Users/me/video.mkv',
+  force: false
+})
+
+if (result.was_transcoded) {
+  console.log(`Transcoded to: ${result.output_path}`)
+} else {
+  console.log('Format already supported, no transcode needed')
+}
+```
+
+---
+
+## Updater Commands
+
+### check_for_updates
+
+Check if a new app version is available.
+
+```typescript
+const update = await invoke<Update | null>('check_for_updates')
+```
+
+<ResponseField name="Update | null" type="object">
+  Update info or null if up to date
+  
+  <Expandable title="Update properties">
+    <ResponseField name="version" type="string">
+      New version number
+    </ResponseField>
+    
+    <ResponseField name="date" type="string">
+      Release date
+    </ResponseField>
+    
+    <ResponseField name="body" type="string">
+      Release notes
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### download_and_install_update
+
+Download and install an update.
+
+```typescript
+await invoke('download_and_install_update')
+```
+
+<ResponseField name="result" type="void">
+  App will restart after update installation
+</ResponseField>
+
+### get_current_version
+
+Get current app version.
+
+```typescript
+const version = await invoke<string>('get_current_version')
+```
+
+<ResponseField name="version" type="string">
+  Current version string (e.g., "1.0.0")
+</ResponseField>
+
+---
+
+## yt-dlp Management
+
+### check_yt_dlp
+
+Check yt-dlp version and availability.
+
+```typescript
+const info = await invoke<YtDlpInfo>('check_yt_dlp', {
+  include_latest?: boolean
+})
+```
+
+<ParamField path="include_latest" type="boolean">
+  Fetch latest version from GitHub (default: false)
+</ParamField>
+
+<ResponseField name="YtDlpInfo" type="object">
+  <Expandable title="properties">
+    <ResponseField name="version" type="string">
+      Installed version
+    </ResponseField>
+    
+    <ResponseField name="path" type="string">
+      Binary path
+    </ResponseField>
+    
+    <ResponseField name="is_embedded" type="boolean">
+      Whether using bundled binary
+    </ResponseField>
+    
+    <ResponseField name="latest_version" type="string | null">
+      Latest available version (if checked)
+    </ResponseField>
+    
+    <ResponseField name="update_available" type="boolean">
+      Whether update is available
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### update_yt_dlp
+
+Update yt-dlp to latest version.
+
+```typescript
+const info = await invoke<YtDlpInfo>('update_yt_dlp')
+```
+
+<ResponseField name="YtDlpInfo" type="object">
+  Updated version info
+</ResponseField>
+
+---
+
+## Related
+
+- [Download Commands](/api/commands/downloads) - Media downloads
+- [Vault Commands](/api/commands/vault) - Encrypted storage
+- [Events](/api/events) - App events

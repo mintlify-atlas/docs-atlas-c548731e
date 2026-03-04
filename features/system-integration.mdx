@@ -1,0 +1,872 @@
+---
+title: 'System Integration'
+description: 'System tray, desktop notifications, taskbar progress, and native OS features'
+icon: 'desktop'
+---
+
+## Overview
+
+Ownstash integrates deeply with your operating system for a native desktop experience. Run in the background, get notified about downloads, and see progress directly in your taskbar.
+
+## System Tray
+
+Ownstash runs in the system tray for quick access and background operation.
+
+### Tray Icon Setup
+
+```rust
+use tauri::tray::TrayIconBuilder;
+use tauri::menu::{Menu, MenuItem};
+
+// Create tray menu
+let quit_i = MenuItem::with_id(
+    app.handle(), 
+    "quit", 
+    "Quit", 
+    true, 
+    None::<&str>
+).unwrap();
+
+let show_i = MenuItem::with_id(
+    app.handle(), 
+    "show", 
+    "Show", 
+    true, 
+    None::<&str>
+).unwrap();
+
+let hide_i = MenuItem::with_id(
+    app.handle(), 
+    "hide", 
+    "Hide", 
+    true, 
+    None::<&str>
+).unwrap();
+
+let menu = Menu::with_items(
+    app.handle(), 
+    &[&show_i, &hide_i, &quit_i]
+).unwrap();
+
+let _tray = TrayIconBuilder::new()
+    .menu(&menu)
+    .icon(app.default_window_icon().unwrap().clone())
+    .on_menu_event(move |app, event| {
+        match event.id.as_ref() {
+            "quit" => {
+                app.exit(0);
+            }
+            "show" => {
+                show_main_window(app);
+            }
+            "hide" => {
+                close_main_window(app);
+            }
+            _ => {}
+        }
+    })
+    .on_tray_icon_event(move |tray, event| {
+        // Left-click tray icon to show/restore window
+        if let TrayIconEvent::Click { 
+            button: MouseButton::Left, .. 
+        } = event {
+            let app = tray.app_handle();
+            show_main_window(&app);
+        }
+    })
+    .build(app)?;
+```
+
+### Minimize to Tray
+
+Keep Ownstash running in the background:
+
+```rust
+fn is_minimize_to_tray_enabled(app: &AppHandle) -> bool {
+    let app_state = app.state::<AppState>();
+    if let Ok(db) = app_state.db.lock() {
+        return db
+            .get_setting("minimize_to_tray")
+            .unwrap_or(Some("false".to_string()))
+            .unwrap_or("false".to_string())
+            == "true";
+    }
+    false
+}
+
+// Handle window close event
+.on_window_event(move |window, event| {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return;
+    }
+    
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        let should_minimize = is_minimize_to_tray_enabled(&window.app_handle());
+        
+        if should_minimize {
+            // Hide window instead of closing
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    }
+});
+```
+
+**User Setting:**
+
+```tsx
+// Frontend: Toggle minimize to tray
+const [minimizeToTray, setMinimizeToTray] = useState(false);
+
+const handleToggleMinimizeToTray = async (enabled: boolean) => {
+  await invoke('save_setting', {
+    key: 'minimize_to_tray',
+    value: enabled.toString()
+  });
+  setMinimizeToTray(enabled);
+};
+
+<Switch
+  checked={minimizeToTray}
+  onCheckedChange={handleToggleMinimizeToTray}
+  label="Minimize to system tray"
+/>
+```
+
+### Window Management
+
+```rust
+const MAIN_WINDOW_LABEL: &str = "main";
+
+fn ensure_main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    // Return existing window if available
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        return Ok(window);
+    }
+    
+    // Create new window
+    WebviewWindowBuilder::new(
+        app,
+        MAIN_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Ownstash Downloader")
+    .inner_size(1280.0, 800.0)
+    .min_inner_size(900.0, 600.0)
+    .resizable(true)
+    .center()
+    .visible(false)
+    .build()
+    .map_err(|e| format!("Failed to create window: {}", e))
+}
+
+pub fn show_main_window(app: &AppHandle) {
+    match ensure_main_window(app) {
+        Ok(window) => {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        Err(err) => {
+            eprintln!("[Window] {}", err);
+        }
+    }
+}
+
+fn close_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+}
+```
+
+## Desktop Notifications
+
+Send native OS notifications for download events.
+
+### Notification Plugin
+
+```rust
+use tauri_plugin_notification::NotificationExt;
+
+// Send notification
+app.notification()
+    .builder()
+    .title("Download Complete")
+    .body(&format!("Downloaded: {}", filename))
+    .icon("download-complete")
+    .show()?;
+```
+
+### Download Notifications
+
+```tsx
+// Frontend: Notification manager
+const notifyDownloadComplete = async (download: Download) => {
+  try {
+    await invoke('send_notification', {
+      title: 'Download Complete',
+      body: `${download.title} • ${formatBytes(download.size_bytes)}`,
+      icon: 'download-complete',
+    });
+  } catch (err) {
+    console.error('Notification failed:', err);
+  }
+};
+
+// Subscribe to download events
+useEffect(() => {
+  const unlisten = api.onDownloadProgress((progress) => {
+    if (progress.status === 'completed') {
+      const download = downloads.find(d => d.id === progress.id);
+      if (download) {
+        notifyDownloadComplete(download);
+      }
+    }
+  });
+  
+  return () => unlisten();
+}, [downloads]);
+```
+
+### Notification Types
+
+<Tabs>
+  <Tab title="Download Complete">
+    ```rust
+    app.notification()
+        .builder()
+        .title("Download Complete")
+        .body(&format!("{} is ready", title))
+        .icon("download-complete")
+        .show()?;
+    ```
+  </Tab>
+  
+  <Tab title="Download Failed">
+    ```rust
+    app.notification()
+        .builder()
+        .title("Download Failed")
+        .body(&format!("Failed to download: {}", title))
+        .icon("download-error")
+        .show()?;
+    ```
+  </Tab>
+  
+  <Tab title="Extension Request">
+    ```rust
+    app.notification()
+        .builder()
+        .title("Download Request")
+        .body("Starting download from browser extension")
+        .icon("extension")
+        .show()?;
+    ```
+  </Tab>
+</Tabs>
+
+### Notification Preferences
+
+```tsx
+const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+const handleToggleNotifications = async (enabled: boolean) => {
+  await invoke('save_setting', {
+    key: 'notifications_enabled',
+    value: enabled.toString()
+  });
+  setNotificationsEnabled(enabled);
+  
+  if (enabled) {
+    // Request OS permission
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      toast.error('Notification permission denied');
+    }
+  }
+};
+```
+
+## Taskbar Progress
+
+Show download progress in the taskbar/dock icon.
+
+### Platform-Specific Progress
+
+```rust
+// native_integration.rs
+use windows::Win32::UI::Shell::{
+    ITaskbarList3, TaskbarList, TBPFLAG,
+};
+
+pub fn init(app_handle: &AppHandle) {
+    // Initialize taskbar progress based on platform
+    #[cfg(target_os = "windows")]
+    init_windows_taskbar(app_handle);
+    
+    #[cfg(target_os = "macos")]
+    init_macos_dock(app_handle);
+    
+    #[cfg(target_os = "linux")]
+    init_linux_unity(app_handle);
+}
+
+#[cfg(target_os = "windows")]
+fn init_windows_taskbar(app_handle: &AppHandle) {
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, 
+        CLSCTX_ALL, COINIT_APARTMENTTHREADED
+    };
+    
+    unsafe {
+        // Initialize COM
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        
+        // Create taskbar interface
+        let taskbar: ITaskbarList3 = CoCreateInstance(
+            &TaskbarList,
+            None,
+            CLSCTX_ALL
+        ).expect("Failed to create taskbar list");
+        
+        taskbar.HrInit().expect("Failed to initialize taskbar");
+        
+        // Store in app state for later use
+        // ... (implementation details)
+    }
+}
+```
+
+### Update Progress
+
+```rust
+pub fn set_taskbar_progress(
+    app_handle: &AppHandle,
+    progress: f64,  // 0.0 to 1.0
+    state: ProgressState,
+) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        
+        let window = app_handle.get_webview_window("main").unwrap();
+        let hwnd = HWND(window.hwnd().unwrap().0 as isize);
+        
+        unsafe {
+            let taskbar = get_taskbar_interface();
+            
+            match state {
+                ProgressState::Normal => {
+                    taskbar.SetProgressState(hwnd, TBPF_NORMAL);
+                    let completed = (progress * 100.0) as u64;
+                    taskbar.SetProgressValue(hwnd, completed, 100);
+                }
+                ProgressState::Error => {
+                    taskbar.SetProgressState(hwnd, TBPF_ERROR);
+                }
+                ProgressState::Paused => {
+                    taskbar.SetProgressState(hwnd, TBPF_PAUSED);
+                }
+                ProgressState::Indeterminate => {
+                    taskbar.SetProgressState(hwnd, TBPF_INDETERMINATE);
+                }
+                ProgressState::NoProgress => {
+                    taskbar.SetProgressState(hwnd, TBPF_NOPROGRESS);
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // Update dock icon progress
+        use cocoa::appkit::{NSApp, NSApplication};
+        use cocoa::base::nil;
+        
+        unsafe {
+            let app = NSApp();
+            if progress > 0.0 && progress < 1.0 {
+                let badge = format!("{:.0}%", progress * 100.0);
+                let badge_str = NSString::alloc(nil)
+                    .init_str(&badge);
+                app.dockTile().setBadgeLabel_(badge_str);
+            } else {
+                app.dockTile().setBadgeLabel_(nil);
+            }
+        }
+    }
+}
+```
+
+### Frontend Integration
+
+```tsx
+// Update taskbar progress based on downloads
+useEffect(() => {
+  const activeDownloads = downloads.filter(
+    d => d.status === 'downloading'
+  );
+  
+  if (activeDownloads.length === 0) {
+    // Clear progress
+    invoke('set_taskbar_progress', {
+      progress: 0,
+      state: 'NoProgress'
+    });
+    return;
+  }
+  
+  // Calculate overall progress
+  const totalProgress = activeDownloads.reduce(
+    (sum, d) => sum + (d.progress || 0), 0
+  ) / activeDownloads.length;
+  
+  invoke('set_taskbar_progress', {
+    progress: totalProgress / 100,
+    state: 'Normal'
+  });
+}, [downloads]);
+```
+
+## Auto-Start on Login
+
+Launch Ownstash automatically when you log in.
+
+```rust
+use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+
+.plugin(
+    tauri_plugin_autostart::init(
+        MacosLauncher::LaunchAgent, 
+        Some(vec!["--minimized"])
+    )
+)
+.setup(move |app| {
+    // Enable autostart by default
+    let app_state = app.state::<AppState>();
+    if let Ok(db) = app_state.db.lock() {
+        if db.get_setting("autostart_initialized").unwrap_or(None).is_none() {
+            let autostart_manager = app.autolaunch();
+            let _ = autostart_manager.enable();
+            let _ = db.save_setting("autostart_initialized", "true");
+            let _ = db.save_setting("autostart_enabled", "true");
+        }
+    }
+    
+    Ok(())
+})
+```
+
+**User Toggle:**
+
+```tsx
+const [autostartEnabled, setAutostartEnabled] = useState(false);
+
+const handleToggleAutostart = async (enabled: boolean) => {
+  try {
+    if (enabled) {
+      await invoke('plugin:autostart|enable');
+    } else {
+      await invoke('plugin:autostart|disable');
+    }
+    
+    await invoke('save_setting', {
+      key: 'autostart_enabled',
+      value: enabled.toString()
+    });
+    
+    setAutostartEnabled(enabled);
+    toast.success(`Autostart ${enabled ? 'enabled' : 'disabled'}`);
+  } catch (err) {
+    toast.error('Failed to toggle autostart');
+  }
+};
+
+<Switch
+  checked={autostartEnabled}
+  onCheckedChange={handleToggleAutostart}
+  label="Launch on system startup"
+/>
+```
+
+## Single Instance
+
+Prevent multiple app instances from running:
+
+```rust
+use tauri_plugin_single_instance::init;
+
+.plugin(init(move |app, argv, _cwd| {
+    println!("[SingleInstance] New instance attempted with argv: {:?}", argv);
+    
+    // Bring existing window to front
+    show_main_window(app);
+    
+    // Handle deep link arguments
+    for arg in argv.iter() {
+        if arg.contains("ownstash://") {
+            if arg.contains("auth") {
+                let _ = app.emit("oauth-deep-link", arg.clone());
+            } else if let Some(url) = parse_deep_link(arg) {
+                let _ = app.emit("extension-download-request", &url);
+            }
+        }
+    }
+}))
+```
+
+## Deep Link Protocol Handler
+
+Register custom URL protocol (`ownstash://`):
+
+```rust
+use tauri_plugin_deep_link::DeepLinkExt;
+
+.plugin(tauri_plugin_deep_link::init())
+.setup(|app| {
+    // Register protocol handler
+    #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+    {
+        let _ = app.deep_link().register_all();
+    }
+    
+    // Listen for deep link events
+    let handle = app.handle().clone();
+    app.listen("deep-link://new-url", move |event| {
+        let payload = event.payload();
+        
+        if payload.contains("auth") {
+            // OAuth callback
+            let _ = handle.emit("oauth-deep-link", payload);
+        } else if let Some(url) = parse_deep_link(payload) {
+            // Download request
+            let _ = handle.emit("extension-download-request", &url);
+        }
+    });
+    
+    Ok(())
+})
+```
+
+**Parse Deep Link:**
+
+```rust
+fn parse_deep_link(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    
+    if parsed.scheme() != "ownstash" {
+        return None;
+    }
+    
+    match parsed.host_str()? {
+        "download" | "vault-download" => {
+            parsed.query_pairs()
+                .find(|(key, _)| key == "url")
+                .map(|(_, value)| value.to_string())
+        }
+        _ => None
+    }
+}
+```
+
+## Window State Persistence
+
+Remember window size and position:
+
+```rust
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+
+.plugin(
+    tauri_plugin_window_state::Builder::default()
+        .with_state_flags(StateFlags::all())
+        .build()
+)
+```
+
+## Background Mode
+
+Keep downloads running when window is closed:
+
+```rust
+let background_mode = Arc::new(AtomicBool::new(false));
+
+// Check if started with --minimized flag
+let args: Vec<String> = std::env::args().collect();
+if args.contains(&"--minimized".to_string()) {
+    background_mode.store(true, Ordering::SeqCst);
+    close_main_window(&app_handle);
+} else {
+    background_mode.store(false, Ordering::SeqCst);
+    show_main_window(&app_handle);
+}
+
+// Prevent exit while downloads active
+.build(tauri::generate_context!())
+.expect("error while building tauri application")
+.run(move |app_handle, event| match event {
+    RunEvent::ExitRequested { api, .. } => {
+        let has_active_downloads = check_active_downloads();
+        let is_background = background_mode.load(Ordering::SeqCst);
+        
+        if has_active_downloads && !is_background {
+            api.prevent_exit();
+            toast::show("Downloads in progress. Minimizing to tray...");
+        }
+    }
+    _ => {}
+});
+```
+
+## Platform-Specific Features
+
+<Tabs>
+  <Tab title="Windows">
+    **Windows-specific integrations:**
+    
+    - **Taskbar progress** with color states (normal, error, paused)
+    - **Jump list** for recent downloads
+    - **Toast notifications** with action buttons
+    - **File associations** for .ownstash files
+    
+    ```rust
+    #[cfg(windows)]
+    fn setup_windows_features(app: &AppHandle) {
+        // Set up jump list
+        setup_jump_list(app);
+        
+        // Register file associations
+        register_file_extensions(app);
+        
+        // Configure toast notifications
+        setup_toast_notifications(app);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="macOS">
+    **macOS-specific integrations:**
+    
+    - **Dock icon badge** with download count/progress
+    - **Touch Bar** controls (if available)
+    - **Notification Center** integration
+    - **Finder integration** for quick access
+    
+    ```rust
+    #[cfg(target_os = "macos")]
+    fn setup_macos_features(app: &AppHandle) {
+        // Update dock badge
+        update_dock_badge(app);
+        
+        // Configure notification center
+        setup_notification_center(app);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Linux">
+    **Linux-specific integrations:**
+    
+    - **Unity launcher** progress indicator
+    - **Desktop notifications** via libnotify
+    - **System tray** with icon and menu
+    - **Desktop files** for app launcher
+    
+    ```rust
+    #[cfg(target_os = "linux")]
+    fn setup_linux_features(app: &AppHandle) {
+        // Unity launcher progress
+        setup_unity_launcher(app);
+        
+        // Desktop notifications
+        setup_libnotify(app);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Settings UI
+
+Configure system integration preferences:
+
+```tsx
+// Settings page
+const SystemIntegrationSettings = () => {
+  const [minimizeToTray, setMinimizeToTray] = useState(false);
+  const [autostart, setAutostart] = useState(false);
+  const [notifications, setNotifications] = useState(true);
+  const [taskbarProgress, setTaskbarProgress] = useState(true);
+  
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>System Integration</CardTitle>
+        <CardDescription>
+          Configure how Ownstash integrates with your OS
+        </CardDescription>
+      </CardHeader>
+      
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>Minimize to System Tray</Label>
+            <p className="text-sm text-muted-foreground">
+              Keep app running in background
+            </p>
+          </div>
+          <Switch
+            checked={minimizeToTray}
+            onCheckedChange={handleToggleMinimizeToTray}
+          />
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>Launch on Startup</Label>
+            <p className="text-sm text-muted-foreground">
+              Start Ownstash when you log in
+            </p>
+          </div>
+          <Switch
+            checked={autostart}
+            onCheckedChange={handleToggleAutostart}
+          />
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>Desktop Notifications</Label>
+            <p className="text-sm text-muted-foreground">
+              Get notified about download events
+            </p>
+          </div>
+          <Switch
+            checked={notifications}
+            onCheckedChange={handleToggleNotifications}
+          />
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>Taskbar Progress</Label>
+            <p className="text-sm text-muted-foreground">
+              Show download progress in taskbar
+            </p>
+          </div>
+          <Switch
+            checked={taskbarProgress}
+            onCheckedChange={handleToggleTaskbarProgress}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Background Downloads">
+    Always enable minimize to tray if you want downloads to continue when closing the window:
+    
+    ```tsx
+    useEffect(() => {
+      const hasActiveDownloads = downloads.some(
+        d => d.status === 'downloading'
+      );
+      
+      if (hasActiveDownloads && !minimizeToTray) {
+        toast.warning('Enable "Minimize to Tray" to keep downloads running when closed');
+      }
+    }, [downloads, minimizeToTray]);
+    ```
+  </Accordion>
+  
+  <Accordion title="Notification Overload">
+    Avoid spamming notifications - only notify for important events:
+    
+    ```typescript
+    const shouldNotify = (download: Download) => {
+      // Only notify for large files or long downloads
+      const isLarge = download.size_bytes > 100 * 1024 * 1024; // 100MB
+      const isComplete = download.status === 'completed';
+      
+      return isLarge && isComplete;
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Resource Usage">
+    System integrations use minimal resources, but can be disabled if needed:
+    
+    ```tsx
+    const [lowPowerMode, setLowPowerMode] = useState(false);
+    
+    useEffect(() => {
+      if (lowPowerMode) {
+        // Disable fancy integrations
+        handleToggleTaskbarProgress(false);
+        handleToggleNotifications(false);
+      }
+    }, [lowPowerMode]);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Tray Icon Not Showing
+
+1. **Restart the app** to reinitialize tray
+2. **Check system tray settings** - icon may be hidden
+3. **Reinstall app** if icon is corrupted
+
+### Notifications Not Working
+
+1. **Check OS permissions** - Grant notification access
+2. **Verify app settings** - Ensure notifications are enabled
+3. **Test notification** - Use test button in settings
+
+### Autostart Not Working
+
+1. **Check startup apps** in system settings
+2. **Reinstall app** to re-register autostart
+3. **Manually add** to startup if automatic fails
+
+## API Reference
+
+```typescript
+// System tray
+await invoke('show_main_window');
+await invoke('hide_main_window');
+
+// Notifications
+await invoke('send_notification', {
+  title: 'Title',
+  body: 'Message',
+  icon: 'icon-name',
+});
+
+// Taskbar progress
+await invoke('set_taskbar_progress', {
+  progress: 0.5,  // 0.0 to 1.0
+  state: 'Normal' | 'Error' | 'Paused' | 'Indeterminate' | 'NoProgress',
+});
+
+// Autostart
+await invoke('plugin:autostart|enable');
+await invoke('plugin:autostart|disable');
+await invoke('plugin:autostart|is_enabled');
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Downloads" icon="download" href="/features/downloads">
+    Learn about download features
+  </Card>
+  <Card title="Settings" icon="gear" href="/configuration/settings">
+    Configure all app settings
+  </Card>
+</CardGroup>

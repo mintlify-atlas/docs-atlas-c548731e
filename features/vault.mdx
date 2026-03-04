@@ -1,0 +1,877 @@
+---
+title: 'Secure Vault'
+description: 'PIN-protected encrypted vault storage using AES-256-GCM with cloud sync via Google Drive'
+icon: 'shield-halved'
+---
+
+## Overview
+
+The Vault feature provides military-grade encryption for your sensitive downloads. Files are encrypted locally using AES-256-GCM with a PIN-derived key, then optionally synced to Google Drive in encrypted form.
+
+<Warning>
+**Zero-knowledge architecture:** Your PIN never leaves your device. Even if your Google Drive is compromised, your files remain secure without the PIN.
+</Warning>
+
+## Security Architecture
+
+### Encryption Standard
+
+**AES-256-GCM** (Advanced Encryption Standard with Galois/Counter Mode)
+
+- **256-bit key** derived from your PIN using Argon2
+- **Authenticated encryption** - detects tampering
+- **Unique nonce per chunk** - prevents replay attacks
+- **Streaming encryption** - handles large files efficiently
+
+```rust
+use aes_gcm::{
+    aead::{Aead, KeyInit, OsRng},
+    Aes256Gcm, Nonce,
+};
+use argon2::{Argon2, PasswordHasher};
+
+const NONCE_SIZE: usize = 12;
+const KEY_SIZE: usize = 32;  // 256 bits
+const ENCRYPTED_EXTENSION: &str = ".slasshy";
+```
+
+### PIN Security
+
+<Steps>
+  <Step title="PIN Hashing (Argon2)">
+    Your PIN is hashed using Argon2 - the winner of the Password Hashing Competition:
+    
+    ```rust
+    pub fn vault_setup(pin: String) -> Result<()> {
+        // Generate random salt
+        let salt = SaltString::generate(&mut OsRng);
+        
+        // Hash PIN with Argon2
+        let argon2 = Argon2::default();
+        let pin_hash = argon2
+            .hash_password(pin.as_bytes(), &salt)?
+            .to_string();
+        
+        // Store hash and salt (NOT the PIN)
+        let config = VaultConfig {
+            pin_hash,
+            salt: salt.to_string(),
+            created_at: Utc::now().timestamp(),
+        };
+        
+        save_vault_config(&config)?;
+    }
+    ```
+  </Step>
+  
+  <Step title="Key Derivation">
+    When you unlock the vault, your PIN derives the encryption key:
+    
+    ```rust
+    fn derive_key_from_pin(pin: &str, salt: &[u8]) -> [u8; KEY_SIZE] {
+        let mut key = [0u8; KEY_SIZE];
+        
+        Argon2::default()
+            .hash_password_into(pin.as_bytes(), salt, &mut key)
+            .expect("Failed to derive key");
+        
+        key  // 256-bit encryption key
+    }
+    ```
+  </Step>
+  
+  <Step title="Session Management">
+    The key is held in memory while the vault is unlocked:
+    
+    ```rust
+    lazy_static! {
+        static ref VAULT_SESSION: Mutex<Option<VaultSession>> = 
+            Mutex::new(None);
+    }
+    
+    struct VaultSession {
+        key: [u8; KEY_SIZE],
+        unlocked_at: i64,
+    }
+    ```
+  </Step>
+</Steps>
+
+## Vault Setup
+
+### Initial Setup
+
+<Tabs>
+  <Tab title="Create Vault">
+    ```tsx
+    // Frontend: Create vault with PIN
+    const handleSetupVault = async (pin: string) => {
+      if (pin.length < 4) {
+        toast.error('PIN must be at least 4 digits');
+        return;
+      }
+      
+      try {
+        await invoke('vault_setup', { pin });
+        toast.success('Vault created successfully');
+        setIsVaultUnlocked(true);
+      } catch (err) {
+        toast.error('Failed to create vault');
+      }
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Unlock Vault">
+    ```tsx
+    // Frontend: Unlock existing vault
+    const handleUnlock = async (pin: string) => {
+      try {
+        await invoke('vault_unlock', { pin });
+        setIsVaultUnlocked(true);
+        await loadVaultFiles();
+      } catch (err) {
+        toast.error('Invalid PIN');
+      }
+    };
+    ```
+  </Tab>
+</Tabs>
+
+**Backend Commands:**
+
+```rust
+#[tauri::command]
+pub fn vault_setup(
+    app_handle: AppHandle, 
+    pin: String
+) -> Result<(), String> {
+    if pin.len() < 4 {
+        return Err("PIN must be at least 4 digits".to_string());
+    }
+    
+    // Generate salt and hash PIN
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let pin_hash = argon2
+        .hash_password(pin.as_bytes(), &salt)?
+        .to_string();
+    
+    let config = VaultConfig {
+        pin_hash,
+        salt: salt.to_string(),
+        created_at: chrono::Utc::now().timestamp(),
+        last_accessed: None,
+    };
+    
+    // Create vault directories
+    let files_dir = get_vault_files_dir(&app_handle);
+    fs::create_dir_all(&files_dir)?;
+    
+    save_vault_config(&app_handle, &config)?;
+    
+    // Auto-unlock after setup
+    let key = derive_key_from_pin(&pin, salt.as_str().as_bytes());
+    *VAULT_SESSION.lock().unwrap() = Some(VaultSession { key });
+    
+    Ok(())
+}
+```
+
+## File Encryption
+
+### Chunked Streaming Encryption
+
+Large files are encrypted in 1MB chunks to handle any file size:
+
+```rust
+fn encrypt_file(
+    key: &[u8; KEY_SIZE], 
+    input_path: &Path, 
+    output_path: &Path
+) -> Result<(), String> {
+    const CHUNK_SIZE: usize = 1024 * 1024;  // 1MB
+    const VAULT_MAGIC: &[u8; 4] = b"SLV2";
+    
+    let cipher = Aes256Gcm::new_from_slice(key)?;
+    
+    // Generate random base nonce
+    let mut base_nonce = [0u8; NONCE_SIZE];
+    OsRng.fill_bytes(&mut base_nonce);
+    
+    let mut input_file = File::open(input_path)?;
+    let file_size = input_file.metadata()?.len();
+    let mut output_file = File::create(output_path)?;
+    
+    // Write header: [MAGIC][nonce][file_size]
+    output_file.write_all(VAULT_MAGIC)?;
+    output_file.write_all(&base_nonce)?;
+    output_file.write_all(&file_size.to_le_bytes())?;
+    
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut chunk_index: u64 = 0;
+    
+    loop {
+        let bytes_read = input_file.read(&mut buffer)?;
+        if bytes_read == 0 { break; }
+        
+        // Derive unique nonce for this chunk
+        let mut chunk_nonce = base_nonce;
+        let index_bytes = chunk_index.to_le_bytes();
+        for i in 0..8 {
+            chunk_nonce[i] ^= index_bytes[i];
+        }
+        let nonce = Nonce::from_slice(&chunk_nonce);
+        
+        // Encrypt chunk
+        let plaintext = &buffer[..bytes_read];
+        let ciphertext = cipher.encrypt(nonce, plaintext)?;
+        
+        // Write [chunk_size][ciphertext]
+        let chunk_len = ciphertext.len() as u32;
+        output_file.write_all(&chunk_len.to_le_bytes())?;
+        output_file.write_all(&ciphertext)?;
+        
+        chunk_index += 1;
+    }
+    
+    Ok(())
+}
+```
+
+### File Format
+
+```
+.slasshy File Structure:
+
+[Header - 24 bytes]
+- Magic: "SLV2" (4 bytes)
+- Base Nonce: 12 bytes
+- File Size: 8 bytes (little-endian)
+
+[Chunks]
+Repeat for each 1MB chunk:
+- Chunk Length: 4 bytes (little-endian)
+- Encrypted Data: Variable (includes 16-byte auth tag)
+```
+
+## Adding Files to Vault
+
+<Tabs>
+  <Tab title="Single File">
+    ```tsx
+    // Frontend: Add file to vault
+    const handleAddToVault = async (filePath: string) => {
+      try {
+        const vaultFile = await invoke<VaultFile>('vault_add_file', {
+          sourcePath: filePath,
+          originalName: path.basename(filePath),
+          fileType: detectFileType(filePath),
+          thumbnail: null,
+          deleteOriginal: true,  // Delete after encryption
+        });
+        
+        // Add to cloud index
+        await addToCloudIndex(vaultFile);
+        
+        toast.success('File added to vault');
+      } catch (err) {
+        toast.error('Failed to add file to vault');
+      }
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Folder (ZIP Archive)">
+    ```tsx
+    // Frontend: Add entire folder
+    const handleAddFolderToVault = async (folderPath: string) => {
+      try {
+        const vaultFile = await invoke<VaultFile>('vault_add_folder', {
+          folderPath,
+          folderName: path.basename(folderPath),
+          deleteOriginal: false,
+        });
+        
+        // Folder is compressed to ZIP, then encrypted
+        toast.success(`Folder encrypted: ${vaultFile.folder_entries?.length} items`);
+      } catch (err) {
+        toast.error('Failed to add folder to vault');
+      }
+    };
+    ```
+  </Tab>
+</Tabs>
+
+**Backend: Add File**
+
+```rust
+#[tauri::command]
+pub async fn vault_add_file(
+    app_handle: AppHandle,
+    source_path: String,
+    original_name: String,
+    file_type: String,
+    thumbnail: Option<String>,
+    delete_original: bool,
+) -> Result<VaultFile, String> {
+    // Get encryption key
+    let key = get_vault_key()?;
+    
+    let source = PathBuf::from(&source_path);
+    let file_size = fs::metadata(&source)?.len();
+    
+    // Generate encrypted filename
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let encrypted_name = format!("{}.slasshy", file_id);
+    let dest_path = get_vault_files_dir(&app_handle).join(&encrypted_name);
+    
+    // Encrypt in background thread
+    tokio::task::spawn_blocking(move || {
+        encrypt_file(&key, &source, &dest_path)
+    }).await??;
+    
+    // Delete original if requested
+    if delete_original {
+        fs::remove_file(&source)?;
+    }
+    
+    Ok(VaultFile {
+        id: file_id,
+        original_name,
+        encrypted_name,
+        size_bytes: file_size,
+        added_at: Utc::now().timestamp(),
+        file_type,
+        thumbnail,
+        is_folder: false,
+        folder_entries: None,
+    })
+}
+```
+
+## Decryption & Export
+
+### Decrypt for Playback
+
+Create temporary decrypted file for in-app playback:
+
+```rust
+#[tauri::command]
+pub async fn vault_get_temp_playback_path(
+    app_handle: AppHandle,
+    file_id: String,
+    encrypted_name: String,
+    original_name: String,
+) -> Result<String, String> {
+    let key = get_vault_key()?;
+    
+    let encrypted_path = get_vault_files_dir(&app_handle)
+        .join(&encrypted_name);
+    
+    // Create temp directory inside vault (more secure)
+    let temp_dir = get_vault_dir(&app_handle).join("temp");
+    fs::create_dir_all(&temp_dir)?;
+    
+    // Generate random temp filename (no traces of original name)
+    let file_extension = PathBuf::from(&original_name)
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_else(|| ".tmp".to_string());
+    
+    let temp_file_id = uuid::Uuid::new_v4().to_string();
+    let temp_path = temp_dir.join(format!("{}{}", temp_file_id, file_extension));
+    
+    // Decrypt in background
+    tokio::task::spawn_blocking(move || {
+        decrypt_file(&key, &encrypted_path, &temp_path)
+    }).await??;
+    
+    Ok(temp_path.to_string_lossy().to_string())
+}
+```
+
+### Export to Folder
+
+```tsx
+// Frontend: Export from vault
+const handleExport = async (file: VaultFile) => {
+  try {
+    const destination = await open({
+      directory: true,
+      title: 'Select export destination',
+    });
+    
+    if (!destination) return;
+    
+    const exportedPath = await invoke<string>('vault_export_file', {
+      fileId: file.id,
+      encryptedName: file.encrypted_name,
+      originalName: file.original_name,
+      destinationPath: destination,
+    });
+    
+    toast.success(`Exported to: ${exportedPath}`);
+  } catch (err) {
+    toast.error('Export failed');
+  }
+};
+```
+
+## Cloud Sync (Google Drive)
+
+<Note>
+**Security:** Files are uploaded to Google Drive ALREADY ENCRYPTED. Google never sees your unencrypted files or your PIN.
+</Note>
+
+### Cloud Index
+
+The vault index (file names, metadata) is stored in an encrypted JSON file in Google Drive:
+
+```typescript
+interface CloudVaultIndex {
+  version: string;
+  files: VaultFile[];
+  updated_at: number;
+  device_id: string;
+}
+
+// Encrypt index with same PIN-derived key
+const encryptedIndex = await encryptVaultIndex(cloudIndex, pin);
+
+// Upload to Google Drive
+await uploadToGoogleDrive('vault_index.enc', encryptedIndex);
+```
+
+### Sync Workflow
+
+<Steps>
+  <Step title="Upload Encrypted File">
+    ```typescript
+    // 1. Get encrypted file from local vault
+    const encryptedContent = await invoke<string>('vault_get_file_base64', {
+      encryptedName: file.encrypted_name
+    });
+    
+    // 2. Upload to Google Drive (already encrypted)
+    const fileId = await uploadToGoogleDrive(
+      file.encrypted_name,
+      encryptedContent,
+      'application/octet-stream'
+    );
+    ```
+  </Step>
+  
+  <Step title="Update Cloud Index">
+    ```typescript
+    // 3. Add to cloud index
+    cloudIndex.files.push(file);
+    
+    // 4. Encrypt and upload index
+    const encryptedIndex = await encryptIndex(cloudIndex, pin);
+    await uploadToGoogleDrive('vault_index.enc', encryptedIndex);
+    ```
+  </Step>
+  
+  <Step title="Sync from Other Devices">
+    ```typescript
+    // On another device:
+    // 1. Download encrypted index
+    const encryptedIndex = await downloadFromGoogleDrive('vault_index.enc');
+    
+    // 2. Decrypt with PIN
+    const cloudIndex = await decryptIndex(encryptedIndex, pin);
+    
+    // 3. Download missing files
+    for (const file of cloudIndex.files) {
+      if (!await localFileExists(file.encrypted_name)) {
+        await downloadEncryptedFile(file.encrypted_name);
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## PIN Management
+
+### Change PIN
+
+Re-encrypt all vault files with a new PIN:
+
+```rust
+#[tauri::command]
+pub fn vault_change_pin(
+    app_handle: AppHandle,
+    current_pin: String,
+    new_pin: String,
+) -> Result<(), String> {
+    // Verify current PIN
+    let config = load_vault_config(&app_handle)?;
+    let parsed_hash = PasswordHash::new(&config.pin_hash)?;
+    Argon2::default()
+        .verify_password(current_pin.as_bytes(), &parsed_hash)
+        .map_err(|_| "Current PIN is incorrect")?;
+    
+    // Derive both keys
+    let current_key = derive_key_from_pin(&current_pin, config.salt.as_bytes());
+    let new_salt = SaltString::generate(&mut OsRng);
+    let new_key = derive_key_from_pin(&new_pin, new_salt.as_str().as_bytes());
+    
+    // Get all encrypted files
+    let files_dir = get_vault_files_dir(&app_handle);
+    let vault_files: Vec<_> = fs::read_dir(&files_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension() == Some(OsStr::new("slasshy")))
+        .collect();
+    
+    let temp_dir = get_vault_dir(&app_handle).join("reencrypt_temp");
+    fs::create_dir_all(&temp_dir)?;
+    
+    // Re-encrypt each file
+    for entry in vault_files {
+        let encrypted_path = entry.path();
+        let temp_decrypted = temp_dir.join(format!("{}_dec", entry.file_name()));
+        let temp_reencrypted = temp_dir.join(format!("{}_new", entry.file_name()));
+        
+        // Decrypt with old key
+        decrypt_file(&current_key, &encrypted_path, &temp_decrypted)?;
+        
+        // Re-encrypt with new key
+        encrypt_file(&new_key, &temp_decrypted, &temp_reencrypted)?;
+        
+        // Replace original
+        fs::rename(&temp_reencrypted, &encrypted_path)?;
+        fs::remove_file(&temp_decrypted)?;
+    }
+    
+    fs::remove_dir_all(&temp_dir)?;
+    
+    // Update config with new PIN hash
+    let new_pin_hash = Argon2::default()
+        .hash_password(new_pin.as_bytes(), &new_salt)?
+        .to_string();
+    
+    let new_config = VaultConfig {
+        pin_hash: new_pin_hash,
+        salt: new_salt.to_string(),
+        created_at: config.created_at,
+        last_accessed: Some(Utc::now().timestamp()),
+    };
+    save_vault_config(&app_handle, &new_config)?;
+    
+    // Update session with new key
+    *VAULT_SESSION.lock().unwrap() = Some(VaultSession {
+        key: new_key,
+        unlocked_at: Utc::now().timestamp(),
+    });
+    
+    Ok(())
+}
+```
+
+### Reset Vault
+
+<Warning>
+**DESTRUCTIVE ACTION:** This permanently deletes all encrypted files. Cannot be undone.
+</Warning>
+
+```rust
+#[tauri::command]
+pub fn vault_reset(
+    app_handle: AppHandle, 
+    pin: String
+) -> Result<(), String> {
+    // Verify PIN before reset
+    let config = load_vault_config(&app_handle)?;
+    let parsed_hash = PasswordHash::new(&config.pin_hash)?;
+    Argon2::default()
+        .verify_password(pin.as_bytes(), &parsed_hash)
+        .map_err(|_| "Invalid PIN")?;
+    
+    // Lock vault
+    *VAULT_SESSION.lock().unwrap() = None;
+    
+    // Delete entire vault directory
+    let vault_dir = get_vault_dir(&app_handle);
+    if vault_dir.exists() {
+        fs::remove_dir_all(&vault_dir)?;
+    }
+    
+    Ok(())
+}
+```
+
+## Folder Support
+
+Encrypt entire folders as ZIP archives:
+
+```rust
+#[tauri::command]
+pub async fn vault_add_folder(
+    app_handle: AppHandle,
+    folder_path: String,
+    folder_name: String,
+    delete_original: bool,
+) -> Result<VaultFile, String> {
+    let key = get_vault_key()?;
+    let source_dir = PathBuf::from(&folder_path);
+    
+    // Collect folder entries
+    let mut folder_entries = Vec::new();
+    let mut total_size = 0u64;
+    
+    for entry in WalkDir::new(&source_dir).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let relative_path = path.strip_prefix(&source_dir)?
+            .to_string_lossy()
+            .to_string();
+        
+        let size = if path.is_file() { 
+            path.metadata()?.len()
+        } else { 0 };
+        
+        total_size += size;
+        
+        folder_entries.push(VaultFolderEntry {
+            name: path.file_name()?.to_string_lossy().to_string(),
+            path: relative_path,
+            size_bytes: size,
+            file_type: detect_file_type(path),
+            is_directory: path.is_dir(),
+        });
+    }
+    
+    // Create ZIP archive
+    let temp_dir = get_vault_dir(&app_handle).join("temp");
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let temp_zip = temp_dir.join(format!("{}.zip", file_id));
+    
+    tokio::task::spawn_blocking(move || {
+        let zip_file = File::create(&temp_zip)?;
+        let mut zip = ZipWriter::new(zip_file);
+        
+        for entry in &folder_entries {
+            if entry.is_directory {
+                zip.add_directory(&entry.path, Default::default())?;
+            } else {
+                let full_path = source_dir.join(&entry.path);
+                zip.start_file(&entry.path, Default::default())?;
+                let mut file = File::open(&full_path)?;
+                std::io::copy(&mut file, &mut zip)?;
+            }
+        }
+        
+        zip.finish()?;
+        Ok::<_, String>(())
+    }).await??;
+    
+    // Encrypt the ZIP
+    let encrypted_name = format!("{}.slasshy", file_id);
+    let dest_path = get_vault_files_dir(&app_handle).join(&encrypted_name);
+    
+    tokio::task::spawn_blocking(move || {
+        encrypt_file(&key, &temp_zip, &dest_path)
+    }).await??;
+    
+    fs::remove_file(&temp_zip)?;
+    
+    if delete_original {
+        fs::remove_dir_all(&source_dir)?;
+    }
+    
+    Ok(VaultFile {
+        id: file_id,
+        original_name: folder_name,
+        encrypted_name,
+        size_bytes: total_size,
+        added_at: Utc::now().timestamp(),
+        file_type: "folder".to_string(),
+        thumbnail: None,
+        is_folder: true,
+        folder_entries: Some(folder_entries),
+    })
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Strong PIN">
+    Use a strong PIN (6+ digits) to resist brute-force attacks.
+    
+    ```tsx
+    const validatePIN = (pin: string) => {
+      if (pin.length < 6) {
+        return 'Use at least 6 digits for better security';
+      }
+      if (/^(\d)\1+$/.test(pin)) {
+        return 'Avoid repeating digits (e.g., 111111)';
+      }
+      if (/^(0123|1234|2345|3456|4567|5678|6789)/.test(pin)) {
+        return 'Avoid sequential digits';
+      }
+      return null;
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Regular Cloud Sync">
+    Back up your vault to Google Drive regularly:
+    
+    ```typescript
+    // Auto-sync every hour
+    setInterval(async () => {
+      if (isVaultUnlocked) {
+        await syncVaultToCloud();
+      }
+    }, 60 * 60 * 1000);
+    ```
+  </Accordion>
+  
+  <Accordion title="Lock Vault When Idle">
+    Automatically lock the vault after inactivity:
+    
+    ```tsx
+    useEffect(() => {
+      let timeout: NodeJS.Timeout;
+      
+      const resetTimer = () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(async () => {
+          await invoke('vault_lock');
+          setIsVaultUnlocked(false);
+          toast.info('Vault locked due to inactivity');
+        }, 15 * 60 * 1000);  // 15 minutes
+      };
+      
+      window.addEventListener('mousemove', resetTimer);
+      window.addEventListener('keypress', resetTimer);
+      
+      return () => {
+        clearTimeout(timeout);
+        window.removeEventListener('mousemove', resetTimer);
+        window.removeEventListener('keypress', resetTimer);
+      };
+    }, []);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Forgot PIN
+
+<Warning>
+**There is NO way to recover files without the correct PIN.** This is by design - zero-knowledge encryption.
+</Warning>
+
+Options:
+1. Try common PINs you've used
+2. If you have cloud backup, the PIN is the same on all devices
+3. As a last resort, use `vault_reset()` to start fresh (loses all files)
+
+### Decryption Failed
+
+```
+Error: "Decryption failed - invalid PIN or corrupted file"
+```
+
+**Causes:**
+- Wrong PIN entered
+- File was corrupted during transfer
+- File was modified/tampered with
+
+**Solutions:**
+1. Verify PIN is correct
+2. Re-download file from cloud backup
+3. Check file integrity with cloud hash
+
+### Cloud Sync Conflicts
+
+If two devices modified vault simultaneously:
+
+```typescript
+// Merge strategy: Keep newer files
+const mergeVaultIndexes = (
+  local: CloudVaultIndex, 
+  remote: CloudVaultIndex
+) => {
+  const merged = new Map<string, VaultFile>();
+  
+  // Add all local files
+  local.files.forEach(f => merged.set(f.id, f));
+  
+  // Add remote files (overwrite if newer)
+  remote.files.forEach(f => {
+    const existing = merged.get(f.id);
+    if (!existing || f.added_at > existing.added_at) {
+      merged.set(f.id, f);
+    }
+  });
+  
+  return Array.from(merged.values());
+};
+```
+
+## API Reference
+
+```typescript
+// Setup & Authentication
+await invoke('vault_setup', { pin: '123456' });
+await invoke('vault_unlock', { pin: '123456' });
+await invoke('vault_lock');
+
+// File Operations
+const file = await invoke<VaultFile>('vault_add_file', {
+  sourcePath: '/path/to/file.mp4',
+  originalName: 'file.mp4',
+  fileType: 'video',
+  deleteOriginal: true,
+});
+
+const files = await invoke<VaultFile[]>('vault_list_files');
+
+const tempPath = await invoke<string>('vault_get_temp_playback_path', {
+  fileId: file.id,
+  encryptedName: file.encrypted_name,
+  originalName: file.original_name,
+});
+
+await invoke('vault_export_file', {
+  fileId: file.id,
+  encryptedName: file.encrypted_name,
+  originalName: file.original_name,
+  destinationPath: '/export/folder',
+});
+
+await invoke('vault_delete_file', { fileId: file.id });
+
+// PIN Management
+await invoke('vault_change_pin', {
+  currentPin: '123456',
+  newPin: '654321',
+});
+
+await invoke('vault_reset', { pin: '123456' });
+
+// Cloud Sync
+const base64 = await invoke<string>('vault_get_file_base64', {
+  encryptedName: file.encrypted_name,
+});
+
+await invoke('vault_save_file_base64', {
+  encryptedName: file.encrypted_name,
+  base64Content: base64,
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Browser Extension" icon="puzzle-piece" href="/features/browser-extension">
+    Download directly to vault from browser
+  </Card>
+  <Card title="Queue Management" icon="list" href="/features/queue-management">
+    Track and manage downloads
+  </Card>
+</CardGroup>

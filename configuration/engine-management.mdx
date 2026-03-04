@@ -1,0 +1,421 @@
+---
+title: 'Engine Management'
+description: 'Manage and update yt-dlp, SpotDL, and FFmpeg download engines'
+icon: 'wrench'
+---
+
+## Overview
+
+Ownstash Downloader uses three core engines to power downloads:
+
+<CardGroup cols={3}>
+  <Card title="yt-dlp" icon="download">
+    Primary download engine for 1000+ platforms
+  </Card>
+  <Card title="SpotDL" icon="spotify">
+    Specialized Spotify downloader
+  </Card>
+  <Card title="FFmpeg" icon="film">
+    Media processing and format conversion
+  </Card>
+</CardGroup>
+
+All engines are bundled with the application but can be updated independently.
+
+## yt-dlp Engine
+
+### Overview
+
+yt-dlp is the primary download engine, supporting over 1000 websites including YouTube, Vimeo, Twitter, Reddit, and many more.
+
+### Version Information
+
+<ParamField path="version" type="string">
+  Currently installed yt-dlp version (e.g., `2024.03.10`)
+</ParamField>
+
+<ParamField path="latest_version" type="string">
+  Latest available version from GitHub releases
+</ParamField>
+
+<ParamField path="is_embedded" type="boolean">
+  Indicates if yt-dlp is bundled with the app or manually installed
+</ParamField>
+
+<ParamField path="path" type="string">
+  Filesystem path to the yt-dlp binary
+</ParamField>
+
+### Binary Locations
+
+yt-dlp is searched in the following order:
+
+<Steps>
+  <Step title="App-Managed Binary (Highest Priority)">
+    Located in app data directory for in-app updates:
+    
+    - **Windows:** `%APPDATA%/com.ownstash.downloader/binaries/yt-dlp.exe`
+    - **macOS:** `~/Library/Application Support/com.ownstash.downloader/binaries/yt-dlp`
+    - **Linux:** `~/.local/share/com.ownstash.downloader/binaries/yt-dlp`
+  </Step>
+  <Step title="Bundled Binary">
+    Shipped with the application installer:
+    
+    - **Windows:** `resources/binaries/yt-dlp.exe`
+    - **macOS:** `resources/binaries/yt-dlp_macos`
+    - **Linux:** `resources/binaries/yt-dlp_linux`
+  </Step>
+</Steps>
+
+<Note>
+  App-managed binaries have priority so that in-app updates are used immediately.
+</Note>
+
+### Platform-Specific Binaries
+
+The updater automatically selects the correct binary for your platform:
+
+```rust
+fn preferred_yt_dlp_asset_name() -> &'static str {
+    #[cfg(all(target_os = "windows", target_arch = "x86"))]
+    { "yt-dlp_x86.exe" }
+    
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    { "yt-dlp_arm64.exe" }
+    
+    #[cfg(target_os = "windows")]
+    { "yt-dlp.exe" }
+    
+    #[cfg(target_os = "macos")]
+    { "yt-dlp_macos" }
+    
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    { "yt-dlp_linux_aarch64" }
+    
+    #[cfg(target_os = "linux")]
+    { "yt-dlp_linux" }
+}
+```
+
+### Updating yt-dlp
+
+<Steps>
+  <Step title="Check for Updates">
+    Click **"Check Status"** to query GitHub for the latest release
+  </Step>
+  <Step title="Review Update Information">
+    Compare your current version with the latest available version
+  </Step>
+  <Step title="Download Update">
+    Click **"Update Engine"** or **"Update to Latest"** (if an update is available)
+  </Step>
+  <Step title="Automatic Installation">
+    The binary is downloaded, verified, and installed automatically
+  </Step>
+</Steps>
+
+**Update Source:**
+```
+https://github.com/yt-dlp/yt-dlp/releases/latest
+```
+
+<Info>
+  Updates are downloaded directly from yt-dlp's official GitHub releases. The app never modifies or repackages the binaries.
+</Info>
+
+### Version Comparison
+
+The app uses intelligent version comparison:
+
+```rust
+fn is_update_available(current_version: &str, latest_version: &str) -> bool {
+    // Parse version segments (e.g., "2024.03.10" -> [2024, 3, 10])
+    let current_segments = parse_version_segments(current_version);
+    let latest_segments = parse_version_segments(latest_version);
+    
+    // Compare segment by segment
+    // Returns true if latest > current
+}
+```
+
+### Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="yt-dlp Not Found">
+    **Error:** "yt-dlp not found. Use the updater in Settings to install it."
+    
+    **Solution:**
+    1. Go to Settings → yt-dlp Engine
+    2. Click "Update Engine" to download and install
+    3. Restart the application if needed
+  </Accordion>
+  
+  <Accordion title="Update Failed">
+    **Common Causes:**
+    - Network connectivity issues
+    - GitHub API rate limiting
+    - Insufficient disk permissions
+    
+    **Solution:**
+    1. Check your internet connection
+    2. Wait a few minutes and retry
+    3. Ensure the app has write permissions to the binaries directory
+  </Accordion>
+  
+  <Accordion title="Version Check Failed">
+    **Error:** "Failed to check latest yt-dlp version"
+    
+    This is a non-fatal error. The app will continue using the installed version.
+    
+    **Solution:**
+    - Check your internet connection
+    - Try again later
+    - Manual update is still available
+  </Accordion>
+</AccordionGroup>
+
+## SpotDL Engine
+
+### Overview
+
+SpotDL is a specialized engine for downloading music from Spotify. It searches for matching tracks on YouTube Music and downloads the best quality audio.
+
+### Version Information
+
+<ParamField path="version" type="string">
+  Currently installed SpotDL version (e.g., `4.2.4`)
+</ParamField>
+
+<ParamField path="latest_version" type="string">
+  Latest available version from GitHub releases
+</ParamField>
+
+<ParamField path="path" type="string">
+  Filesystem path to the SpotDL binary
+</ParamField>
+
+### Binary Locations
+
+Similar to yt-dlp, SpotDL follows the same priority order:
+
+1. **App-Managed:** `{APP_DATA}/binaries/spotdl` or `spotdl.exe`
+2. **Bundled:** `resources/binaries/spotdl`
+
+### Platform-Specific Assets
+
+```rust
+fn pick_spotdl_asset(release: &GithubRelease) -> Option<GithubAsset> {
+    #[cfg(target_os = "windows")]
+    {
+        // Find Windows .exe (e.g., "spotdl-win.exe")
+        release.assets.iter()
+            .find(|asset| asset.name.contains("win") && asset.name.ends_with(".exe"))
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // Find macOS binary
+        release.assets.iter()
+            .find(|asset| asset.name.contains("darwin") || asset.name.contains("mac"))
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Find Linux binary
+        release.assets.iter()
+            .find(|asset| asset.name.contains("linux"))
+    }
+}
+```
+
+### Updating SpotDL
+
+<Steps>
+  <Step title="Navigate to Settings">
+    Open Settings → SpotDL Engine
+  </Step>
+  <Step title="Check Status">
+    Click "Check Status" to verify the current version
+  </Step>
+  <Step title="Install Update">
+    Click "Update Engine" to download the latest release
+  </Step>
+</Steps>
+
+**Update Source:**
+```
+https://github.com/spotDL/spotify-downloader/releases/latest
+```
+
+### Usage
+
+SpotDL is automatically invoked when you download from Spotify:
+
+```rust
+let mut args = vec![
+    "download".to_string(),
+    url.to_string(),
+    "--output".to_string(),
+    output_path.to_string(),
+    "--format".to_string(),
+    audio_format.to_string(),
+    "--bitrate".to_string(),
+    audio_quality.to_string(),
+];
+
+if embed_lyrics {
+    args.push("--generate-lrc".to_string());
+}
+
+if let Some(thread_count) = threads {
+    args.push("--threads".to_string());
+    args.push(thread_count.to_string());
+}
+```
+
+## FFmpeg Engine
+
+### Overview
+
+FFmpeg is used for:
+- Merging video and audio streams
+- Format conversion
+- Thumbnail embedding
+- Metadata embedding
+- Subtitle embedding
+
+### Binary Location
+
+FFmpeg is bundled with the application:
+
+- **Windows:** `resources/binaries/ffmpeg.exe`
+- **macOS:** `resources/binaries/ffmpeg`
+- **Linux:** `resources/binaries/ffmpeg`
+
+<Warning>
+  FFmpeg is **not** auto-updatable through the app. It ships as a bundled binary and is updated only with new app releases.
+</Warning>
+
+### FFmpeg Location Configuration
+
+The app tells yt-dlp where to find FFmpeg:
+
+```rust
+if let Some(ffmpeg) = &self.ffmpeg_path {
+    if let Some(ffmpeg_dir) = std::path::Path::new(ffmpeg).parent() {
+        args.extend([
+            "--ffmpeg-location".to_string(), 
+            ffmpeg_dir.to_string_lossy().to_string()
+        ]);
+    }
+}
+```
+
+<Note>
+  yt-dlp expects the **directory** containing FFmpeg, not the full path to the binary.
+</Note>
+
+### Troubleshooting FFmpeg
+
+<AccordionGroup>
+  <Accordion title="FFmpeg Not Found">
+    **Warning:** "FFmpeg not found! Video merging may not work."
+    
+    This warning appears if FFmpeg is missing from the bundled binaries.
+    
+    **Impact:**
+    - Cannot merge separate video/audio streams
+    - Cannot embed thumbnails or metadata
+    - Format conversion unavailable
+    
+    **Solution:**
+    - Reinstall the application
+    - Ensure the bundled binaries are intact
+  </Accordion>
+  
+  <Accordion title="Merge Failed">
+    **Error during download:** "Postprocessing failed"
+    
+    This usually indicates FFmpeg couldn't merge the streams.
+    
+    **Solution:**
+    - Verify FFmpeg is present and executable
+    - Check available disk space
+    - Try a different video format
+  </Accordion>
+</AccordionGroup>
+
+## Supported Platforms
+
+yt-dlp supports **1000+ websites**. Common platforms include:
+
+<CardGroup cols={4}>
+  <Card title="YouTube" icon="youtube">
+    Videos, playlists, channels
+  </Card>
+  <Card title="Vimeo" icon="vimeo">
+    Public and private videos
+  </Card>
+  <Card title="Twitter/X" icon="x-twitter">
+    Video tweets
+  </Card>
+  <Card title="Reddit" icon="reddit">
+    Video posts
+  </Card>
+  <Card title="Facebook" icon="facebook">
+    Public videos
+  </Card>
+  <Card title="Instagram" icon="instagram">
+    Posts, reels, stories
+  </Card>
+  <Card title="TikTok" icon="tiktok">
+    Videos without watermark
+  </Card>
+  <Card title="Twitch" icon="twitch">
+    VODs and clips
+  </Card>
+</CardGroup>
+
+**View all supported platforms:**
+```bash
+yt-dlp --list-extractors
+```
+
+## Engine Health Monitoring
+
+The app includes a Download Router and Health Registry (v2.0) that monitors engine performance:
+
+```rust
+use crate::health_metrics::{DownloadEngine, DownloadPhase, HEALTH_REGISTRY};
+
+// Register download with health metrics
+HEALTH_REGISTRY.register_download(
+    &request.id,
+    routing_decision.engine,
+    routing_decision.file_size,
+);
+
+// Update phase
+HEALTH_REGISTRY.set_phase(&request.id, DownloadPhase::Downloading);
+
+// Cleanup on completion
+HEALTH_REGISTRY.unregister_download(&request.id);
+```
+
+**Monitored Phases:**
+- Initializing
+- Downloading
+- Processing (merging, embedding)
+- Completed
+- Failed
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Download Options" icon="sliders" href="/configuration/download-options">
+    Configure quality and format preferences
+  </Card>
+  <Card title="Application Settings" icon="gear" href="/configuration/settings">
+    System and storage settings
+  </Card>
+</CardGroup>

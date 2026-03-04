@@ -1,0 +1,276 @@
+---
+title: Spotify Commands
+description: Tauri commands for downloading music from Spotify using SpotDL
+---
+
+Commands for downloading tracks, albums, and playlists from Spotify.
+
+## start_spotify_download
+
+Start downloading Spotify content.
+
+```typescript
+await invoke('start_spotify_download', { request: SpotifyDownloadRequest })
+```
+
+<ParamField path="request" type="SpotifyDownloadRequest" required>
+  Download configuration
+  
+  <Expandable title="SpotifyDownloadRequest properties">
+    <ParamField path="id" type="string" required>
+      Unique download ID
+    </ParamField>
+    
+    <ParamField path="url" type="string" required>
+      Spotify URL (track/album/playlist/artist)
+    </ParamField>
+    
+    <ParamField path="output_path" type="string" required>
+      Directory to save files
+    </ParamField>
+    
+    <ParamField path="audio_format" type="string" required>
+      Output format: "mp3", "m4a", "flac", "opus", "ogg", "wav"
+    </ParamField>
+    
+    <ParamField path="audio_quality" type="string" required>
+      Bitrate: "128k", "192k", "256k", "320k"
+    </ParamField>
+    
+    <ParamField path="embed_lyrics" type="boolean" required>
+      Embed synchronized lyrics (experimental)
+    </ParamField>
+    
+    <ParamField path="threads" type="number">
+      Concurrent downloads (2-8, default: 4)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns immediately. Progress is emitted via `spotify-download-progress` event.
+</ResponseField>
+
+### Usage Example
+
+```typescript
+import { invoke } from '@tauri-apps/api/core'
+import { generateDownloadId } from '@/services/api'
+
+const downloadId = generateDownloadId()
+
+await invoke('start_spotify_download', {
+  request: {
+    id: downloadId,
+    url: 'https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6',
+    output_path: '/Users/me/Music',
+    audio_format: 'mp3',
+    audio_quality: '320k',
+    embed_lyrics: false,
+    threads: 4
+  }
+})
+```
+
+---
+
+## cancel_spotify_download
+
+Cancel an active Spotify download.
+
+```typescript
+await invoke('cancel_spotify_download', { id: string })
+```
+
+<ParamField path="id" type="string" required>
+  Download ID to cancel
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('cancel_spotify_download', { id: 'spotify-download-123' })
+```
+
+---
+
+## get_spotify_info
+
+Fetch metadata about Spotify content.
+
+```typescript
+const info = await invoke<SpotifyMediaInfo>('get_spotify_info', { url: string })
+```
+
+<ParamField path="url" type="string" required>
+  Spotify URL (track/album/playlist/artist)
+</ParamField>
+
+<ResponseField name="SpotifyMediaInfo" type="object">
+  <Expandable title="properties">
+    <ResponseField name="title" type="string">
+      Track/album/playlist name
+    </ResponseField>
+    
+    <ResponseField name="artist" type="string | null">
+      Artist name
+    </ResponseField>
+    
+    <ResponseField name="album" type="string | null">
+      Album name (for tracks)
+    </ResponseField>
+    
+    <ResponseField name="duration" type="number | null">
+      Duration in seconds (for single tracks)
+    </ResponseField>
+    
+    <ResponseField name="thumbnail" type="string | null">
+      Album/playlist cover art URL
+    </ResponseField>
+    
+    <ResponseField name="platform" type="string">
+      Always "Spotify"
+    </ResponseField>
+    
+    <ResponseField name="track_count" type="number | null">
+      Number of tracks (for albums/playlists)
+    </ResponseField>
+    
+    <ResponseField name="content_type" type="string">
+      "track", "album", "playlist", or "artist"
+    </ResponseField>
+    
+    <ResponseField name="url" type="string">
+      Original Spotify URL
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const info = await invoke<SpotifyMediaInfo>('get_spotify_info', {
+  url: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'
+})
+
+console.log(`${info.content_type}: ${info.title}`)
+console.log(`Tracks: ${info.track_count}`)
+console.log(`Artist: ${info.artist}`)
+```
+
+---
+
+## check_spotdl
+
+Check SpotDL version and availability.
+
+```typescript
+const info = await invoke<SpotDlInfo>('check_spotdl', {
+  include_latest?: boolean
+})
+```
+
+<ParamField path="include_latest" type="boolean">
+  Fetch latest version from GitHub (default: false)
+</ParamField>
+
+<ResponseField name="SpotDlInfo" type="object">
+  <Expandable title="properties">
+    <ResponseField name="version" type="string">
+      Installed version
+    </ResponseField>
+    
+    <ResponseField name="path" type="string">
+      Binary path
+    </ResponseField>
+    
+    <ResponseField name="is_available" type="boolean">
+      Whether SpotDL is working
+    </ResponseField>
+    
+    <ResponseField name="latest_version" type="string | null">
+      Latest available version (if checked)
+    </ResponseField>
+    
+    <ResponseField name="update_available" type="boolean">
+      Whether update is available
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const info = await invoke<SpotDlInfo>('check_spotdl', {
+  include_latest: true
+})
+
+if (!info.is_available) {
+  console.error('SpotDL not installed')
+} else if (info.update_available) {
+  console.log(`Update available: ${info.latest_version}`)
+} else {
+  console.log(`SpotDL ${info.version} (up to date)`)
+}
+```
+
+---
+
+## update_spotdl
+
+Update SpotDL to latest version.
+
+```typescript
+const info = await invoke<SpotDlInfo>('update_spotdl')
+```
+
+<ResponseField name="SpotDlInfo" type="object">
+  Updated version info
+</ResponseField>
+
+### Usage Example
+
+```typescript
+try {
+  const info = await invoke<SpotDlInfo>('update_spotdl')
+  console.log(`Updated to SpotDL ${info.version}`)
+} catch (err) {
+  console.error('Update failed:', err)
+}
+```
+
+---
+
+## How Spotify Downloads Work
+
+SpotDL uses a two-step process:
+
+1. **Metadata Fetch**: Uses Spotify API to get track info (title, artist, album, duration)
+2. **Audio Download**: Searches YouTube for the best match and downloads using yt-dlp
+3. **Metadata Embedding**: Embeds Spotify metadata into the downloaded file
+
+### Supported URL Types
+
+- **Track**: `https://open.spotify.com/track/{id}`
+- **Album**: `https://open.spotify.com/album/{id}` (downloads all tracks)
+- **Playlist**: `https://open.spotify.com/playlist/{id}` (downloads all tracks)
+- **Artist**: `https://open.spotify.com/artist/{id}` (downloads top tracks)
+
+### Quality Notes
+
+- Spotify streams at ~320kbps OGG Vorbis
+- Downloads from YouTube may vary in quality (typically 128-256kbps AAC)
+- For best quality, use `"320k"` bitrate with `"mp3"` or `"m4a"` format
+- `"flac"` format is lossless but source is still YouTube (not truly lossless)
+
+---
+
+## Related
+
+- [Download Commands](/api/commands/downloads) - General media downloads
+- [Events](/api/events) - Spotify download progress events
+- [Settings Commands](/api/commands/settings) - App configuration

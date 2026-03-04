@@ -1,0 +1,279 @@
+---
+title: 'Download Options'
+description: 'Configure quality, format, subtitles, and metadata preferences'
+icon: 'sliders'
+---
+
+## Overview
+
+Customize how Ownstash Downloader processes and saves your media files. All preferences are saved automatically and applied to future downloads.
+
+## Video Settings
+
+### Preferred Quality
+
+<ParamField path="preferred_quality" type="string" default="best">
+  Default video quality for downloads. This setting is applied when you don't manually select a quality option.
+</ParamField>
+
+**Available Options:**
+
+<Tabs>
+  <Tab title="Best Available">
+    Downloads the highest quality available (4K/2160p if available)
+    
+    Format: `bestvideo+bestaudio/best`
+  </Tab>
+  <Tab title="1080p Full HD">
+    Limits to 1080p resolution
+    
+    Format: `bestvideo[height<=1080]+bestaudio/best[height<=1080]`
+  </Tab>
+  <Tab title="720p HD">
+    Limits to 720p resolution
+    
+    Format: `bestvideo[height<=720]+bestaudio/best[height<=720]`
+  </Tab>
+  <Tab title="480p SD">
+    Limits to 480p resolution
+    
+    Format: `bestvideo[height<=480]+bestaudio/best[height<=480]`
+  </Tab>
+  <Tab title="360p">
+    Limits to 360p resolution (smallest file size)
+    
+    Format: `bestvideo[height<=360]+bestaudio/best[height<=360]`
+  </Tab>
+</Tabs>
+
+### Video Format
+
+<ParamField path="video_format" type="string" default="mp4">
+  Output container format for video files. Used when merging video and audio streams.
+</ParamField>
+
+**Supported Formats:**
+- `mp4` - Best compatibility (default)
+- `mkv` - Matroska, supports more codecs
+- `webm` - Web-optimized format
+
+<Note>
+  The output format is applied during the merge phase when yt-dlp combines separate video and audio streams.
+</Note>
+
+### Embed Thumbnails
+
+<ParamField path="embed_thumbnails" type="boolean" default="true">
+  Embed video thumbnails as cover art in the downloaded file. Thumbnails appear in media players and file managers.
+</ParamField>
+
+**Benefits:**
+- Visual identification in media libraries
+- Better organization
+- Professional appearance
+
+### Embed Metadata
+
+<ParamField path="embed_metadata" type="boolean" default="true">
+  Embed metadata (title, uploader, description, upload date) into the downloaded file.
+</ParamField>
+
+**Embedded Information:**
+- Video title
+- Channel/uploader name
+- Description
+- Upload date
+- View count (if available)
+- Like count (if available)
+
+### SponsorBlock Integration
+
+<ParamField path="use_sponsorblock" type="boolean" default="false">
+  Automatically remove sponsored segments, intros, outros, and self-promotion from YouTube videos using the SponsorBlock community database.
+</ParamField>
+
+**What Gets Removed:**
+- Sponsor segments
+- Unpaid/self-promotion
+- Interaction reminders ("Like & Subscribe")
+- Intermissions/breaks
+- Intro/outro sequences
+- Preview/recap segments
+- Filler content
+
+<Warning>
+  SponsorBlock uses community-submitted timestamps. Accuracy depends on community contributions. Newly uploaded videos may not have segments marked yet.
+</Warning>
+
+```bash
+# yt-dlp command with SponsorBlock
+--sponsorblock-remove all
+```
+
+## Audio Settings
+
+### Preferred Format
+
+<ParamField path="audio_format" type="string" default="mp3">
+  Default audio format for audio-only downloads and audio extraction from videos.
+</ParamField>
+
+**Available Formats:**
+
+<CardGroup cols={2}>
+  <Card title="MP3" icon="music">
+    Universal compatibility, widely supported
+    
+    **Use for:** Maximum compatibility
+  </Card>
+  <Card title="M4A (AAC)" icon="file-audio">
+    Better quality at same bitrate than MP3
+    
+    **Use for:** Apple devices, modern players
+  </Card>
+  <Card title="OPUS" icon="file-audio">
+    Best compression efficiency
+    
+    **Use for:** Streaming, low bandwidth
+  </Card>
+  <Card title="FLAC" icon="compact-disc">
+    Lossless compression, no quality loss
+    
+    **Use for:** Archival, audiophile quality
+  </Card>
+  <Card title="WAV" icon="waveform">
+    Uncompressed audio
+    
+    **Use for:** Audio editing, maximum quality
+  </Card>
+</CardGroup>
+
+### Audio Bitrate
+
+<ParamField path="audio_bitrate" type="string" default="320">
+  Audio quality in kbps (kilobits per second). Higher values mean better quality but larger file sizes.
+</ParamField>
+
+**Quality Levels:**
+
+| Bitrate | Quality | Use Case |
+|---------|---------|----------|
+| 320 kbps | Best | High-quality listening, archival |
+| 256 kbps | High | Excellent quality, smaller size |
+| 192 kbps | Good | Balanced quality/size |
+| 128 kbps | Standard | Mobile, streaming |
+
+<Note>
+  For lossless formats (FLAC, WAV), the bitrate setting is ignored as these formats don't use lossy compression.
+</Note>
+
+## Subtitle Options
+
+### Download Subtitles
+
+<ParamField path="download_subtitles" type="boolean" default="false">
+  Download and embed subtitles into video files. Only available for video downloads (not audio-only).
+</ParamField>
+
+**Subtitle Behavior:**
+- Only **manually uploaded** subtitles are downloaded (auto-generated subtitles are skipped)
+- Subtitles are **embedded** into the video file
+- Standalone subtitle files (.vtt, .srt) are automatically cleaned up after embedding
+- Preferred languages: English variants (en, en-US, en-GB)
+
+```bash
+# yt-dlp subtitle options
+--write-subs              # Download manual subtitles
+--embed-subs             # Embed into video file
+--sub-langs "en,en-US,en-GB"  # Preferred languages
+```
+
+<Warning>
+  Auto-generated subtitles are intentionally excluded because they can cause embedding issues and are often low quality.
+</Warning>
+
+## Spotify-Specific Options
+
+When downloading from Spotify (using SpotDL):
+
+### Embed Lyrics
+
+<ParamField path="embed_lyrics" type="boolean" default="true">
+  Embed synchronized lyrics from Spotify into downloaded audio files.
+</ParamField>
+
+### Download Threads
+
+<ParamField path="threads" type="integer" default="4">
+  Number of parallel downloads for Spotify playlists and albums.
+</ParamField>
+
+## Advanced Options
+
+### Concurrent Fragments
+
+The app automatically adjusts concurrent fragment downloads based on the download engine routing decision:
+
+```rust
+let concurrent_fragments = routing_decision
+    .recommended_connections
+    .clamp(2, 8);
+```
+
+**Range:** 2-8 concurrent connections
+
+<Note>
+  The Download Router (v2.0) intelligently selects the optimal number of connections based on:
+  - Server capabilities (range request support)
+  - File size
+  - Network reputation
+  - Download engine (SNDE, SNDESafe, or Media Engine)
+</Note>
+
+### Retry Settings
+
+Automatic retry configuration:
+
+```bash
+--retries 4                # Overall retries
+--fragment-retries 4       # Fragment-specific retries
+--socket-timeout 20        # 20-second timeout
+```
+
+## Engine-Specific Behavior
+
+### SNDE (Super Network Download Engine)
+
+For static files with range request support:
+- Uses parallel chunk downloads
+- Optimized for large files
+- Badge: "SNDE ACCELERATED"
+
+### SNDE Safe
+
+For servers with limited range support:
+- Conservative connection count
+- Safer for unstable servers
+- Badge: "SNDE SAFE"
+
+### Media Engine
+
+For dynamic content (YouTube, streaming platforms):
+- Uses yt-dlp or SpotDL
+- Adaptive streaming support
+- Badge: "MEDIA ENGINE"
+
+<Info>
+  The engine is automatically selected based on URL analysis and server capabilities. You don't need to manually choose.
+</Info>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Application Settings" icon="gear" href="/configuration/settings">
+    Configure system preferences and storage
+  </Card>
+  <Card title="Engine Management" icon="wrench" href="/configuration/engine-management">
+    Update and manage download engines
+  </Card>
+</CardGroup>

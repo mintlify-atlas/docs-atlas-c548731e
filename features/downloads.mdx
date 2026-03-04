@@ -1,0 +1,388 @@
+---
+title: 'Media Downloads'
+description: 'Download from 1000+ platforms including YouTube, SoundCloud, Vimeo, and more with advanced quality options'
+icon: 'download'
+---
+
+## Overview
+
+Ownstash Downloader supports downloading media from over 1000 platforms using the powerful yt-dlp engine. Get videos, audio, and playlists with advanced quality controls and format options.
+
+<Note>
+Ownstash automatically detects the best download engine for each URL - SNDE for direct files, Media Engine for adaptive streaming, or yt-dlp for platforms.
+</Note>
+
+## Supported Platforms
+
+Ownstash works with any site supported by yt-dlp, including:
+
+- **Video:** YouTube, Vimeo, Dailymotion, TikTok, Instagram, Twitter/X
+- **Audio:** SoundCloud, Spotify (via API), Bandcamp, Mixcloud
+- **Live Streaming:** Twitch, YouTube Live, Facebook Live
+- **Education:** Udemy, Coursera, Khan Academy
+- **And 1000+ more platforms**
+
+## Download Workflow
+
+<Steps>
+  <Step title="Paste URL">
+    Copy any media URL and paste it into the search bar on the Home page.
+    
+    ```tsx
+    // Frontend validates and submits URL
+    const handleSubmit = async () => {
+      if (!query.trim()) return;
+      
+      await api.addSearch(query.trim());
+      navigate('/downloads');
+    };
+    ```
+  </Step>
+  
+  <Step title="Automatic Quality Detection">
+    Ownstash fetches available formats and displays quality options.
+    
+    ```rust
+    // Backend fetches media info
+    pub async fn get_media_info(
+        &self, 
+        url: &str, 
+        check_sponsorblock: bool
+    ) -> Result<MediaInfo, String> {
+        let mut args = vec![
+            "--dump-single-json",
+            "--skip-download",
+            "--no-playlist",
+        ];
+        
+        let output = Command::new(&self.yt_dlp_path)
+            .args(&args)
+            .output()
+            .await?;
+            
+        let json = serde_json::from_slice(&output.stdout)?;
+        // Returns title, formats, thumbnail, duration, etc.
+    }
+    ```
+  </Step>
+  
+  <Step title="Select Format & Quality">
+    Choose video quality (4K, 1080p, 720p) or extract audio (MP3, M4A, FLAC).
+    
+    <Tabs>
+      <Tab title="Video Download">
+        ```tsx
+        // Quality selector
+        <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+          <option value="best">Best (4K/2160p)</option>
+          <option value="1080p">Full HD (1080p)</option>
+          <option value="720p">HD (720p)</option>
+          <option value="480p">SD (480p)</option>
+        </select>
+        ```
+      </Tab>
+      
+      <Tab title="Audio Extraction">
+        ```tsx
+        // Audio format options
+        const audioFormats = [
+          { value: 'mp3', label: 'MP3 (Universal)' },
+          { value: 'm4a', label: 'M4A (High Quality)' },
+          { value: 'flac', label: 'FLAC (Lossless)' }
+        ];
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Track Progress">
+    Real-time progress updates with speed, ETA, and engine badge.
+    
+    ```rust
+    // Progress event emission
+    app.emit("download-progress", DownloadProgress {
+        id: download_id,
+        progress: 45.8,  // Percentage
+        speed: "2.5 MiB/s",
+        eta: "00:35",
+        status: "downloading",
+        engine_badge: Some("SNDE ACCELERATED"),
+    });
+    ```
+  </Step>
+</Steps>
+
+## Download Engines
+
+Ownstash automatically routes downloads to the optimal engine:
+
+<Accordion title="SNDE ACCELERATED">
+**Best for:** Direct file downloads with range request support
+
+- **Multi-connection downloads** (up to 8 parallel streams)
+- **Resume capability** for interrupted downloads  
+- **Optimal for:** Cloud storage (Google Drive, Dropbox, OneDrive)
+
+```rust
+// SNDE routes files based on probe results
+if routing_decision.probe_result.supports_range {
+    let snde_request = SNDERequest {
+        url: url.clone(),
+        recommended_connections: 8,
+    };
+    SNDE_ENGINE.download(snde_request).await;
+}
+```
+</Accordion>
+
+<Accordion title="SNDE SAFE">
+**Best for:** Servers without range request support
+
+- **Single connection** download
+- **Reliable** for all file types
+- **Fallback mode** when acceleration isn't supported
+</Accordion>
+
+<Accordion title="MEDIA ENGINE">
+**Best for:** Streaming platforms (YouTube, Vimeo, etc.)
+
+- **Adaptive streaming** support (DASH, HLS)
+- **Quality selection** with format merging
+- **Subtitle embedding** and metadata extraction
+
+```rust
+// yt-dlp with optimized settings
+let mut args = vec![
+    "--concurrent-fragments", "4",
+    "--retries", "4",
+    "-f", "bestvideo+bestaudio/best",
+];
+
+if audio_only {
+    args.extend(["-x", "--audio-format", "mp3"]);
+}
+```
+</Accordion>
+
+## Advanced Features
+
+### Video Quality Selection
+
+Choose from available formats:
+
+```tsx
+// Quality options from media info
+const availableQualities = mediaInfo.formats
+  .filter(f => f.vcodec && f.acodec)
+  .map(f => ({
+    height: f.height,
+    fps: f.fps,
+    label: `${f.height}p${f.fps === 60 ? '60' : ''}`
+  }));
+```
+
+### Audio Extraction
+
+Extract audio with quality presets:
+
+<Tabs>
+  <Tab title="MP3">
+    ```rust
+    args.extend([
+        "-x",
+        "--audio-format", "mp3",
+        "--audio-quality", "0",  // Best
+        "--embed-thumbnail",
+        "--embed-metadata",
+    ]);
+    ```
+  </Tab>
+  
+  <Tab title="FLAC (Lossless)">
+    ```rust
+    args.extend([
+        "-x",
+        "--audio-format", "flac",
+        "--audio-quality", "0",
+    ]);
+    ```
+  </Tab>
+</Tabs>
+
+### Subtitle Support
+
+```rust
+// Automatically download and embed subtitles
+if download_subtitles {
+    args.push("--write-subs");
+    args.push("--embed-subs");
+    args.push("--sub-langs");
+    args.push("en,en-US,en-GB");
+}
+```
+
+### SponsorBlock Integration
+
+Remove sponsored segments from YouTube videos:
+
+```rust
+if use_sponsorblock {
+    args.push("--sponsorblock-remove");
+    args.push("all");  // sponsor, intro, outro, etc.
+}
+```
+
+## Progress Tracking
+
+Real-time updates appear on the Downloads page:
+
+```tsx
+// Subscribe to progress events
+useEffect(() => {
+  const unlisten = api.onDownloadProgress((progress) => {
+    setDownloads(prev => prev.map(d => 
+      d.id === progress.id 
+        ? { ...d, 
+            progress: progress.progress,
+            speed: progress.speed,
+            eta: progress.eta,
+            engine_badge: progress.engine_badge
+          }
+        : d
+    ));
+  });
+  
+  return () => unlisten();
+}, []);
+```
+
+**Progress UI Components:**
+
+- **Progress bar** with percentage (0-100%)
+- **Download speed** (e.g., "2.5 MiB/s")
+- **ETA** (estimated time remaining)
+- **Engine badge** (SNDE ACCELERATED, MEDIA ENGINE)
+- **Status indicator** (downloading, completed, failed)
+
+<Warning>
+Don't close the app while downloads are active. Ownstash can minimize to the system tray to continue downloads in the background.
+</Warning>
+
+## Platform-Specific Features
+
+### YouTube
+
+- **4K/8K support** for premium quality
+- **Chapter detection** and metadata
+- **Live stream recording**
+- **Playlist downloads** (coming soon)
+
+### Spotify
+
+Spotify downloads use a separate authenticated API flow:
+
+```tsx
+// Spotify requires OAuth login
+const handleSpotifyDownload = async (url: string) => {
+  if (!isSpotifyAuthenticated) {
+    await loginToSpotify();
+  }
+  
+  // Download track/album/playlist
+  await api.startSpotifyDownload({
+    url,
+    quality: 'high',  // 320kbps MP3
+    format: 'mp3'
+  });
+};
+```
+
+### Direct Files
+
+Cloud storage and direct file links:
+
+```rust
+// Probe file metadata
+pub async fn probe_direct_file(url: String) -> Result<DirectFileInfo> {
+    let response = client.head(&url).send().await?;
+    
+    Ok(DirectFileInfo {
+        file_size: response.headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0),
+        filename: extract_filename_from_headers(&response),
+        supports_range: response.headers()
+            .get("accept-ranges")
+            .map(|v| v == "bytes")
+            .unwrap_or(false),
+    })
+}
+```
+
+## Troubleshooting
+
+### Download Failed
+
+1. **Check yt-dlp version** - Go to Settings > Update yt-dlp
+2. **Try different quality** - Some formats may be unavailable
+3. **Check internet connection** - Ensure stable connection
+4. **Platform restrictions** - Some content may be geo-blocked
+
+### Slow Downloads
+
+- **Use SNDE ACCELERATED** for direct files (automatic)
+- **Check concurrent downloads** - Limit active downloads to 2-3
+- **Network throttling** - Some platforms limit download speed
+
+### Format Not Available
+
+```tsx
+// Fallback to best available format
+const formatSelector = quality === '4k' 
+  ? 'bestvideo[height<=2160]+bestaudio/best'
+  : 'bestvideo+bestaudio/best';
+```
+
+## API Reference
+
+Key download functions:
+
+```typescript
+// Start a download
+await api.startDownload({
+  id: uuid(),
+  url: 'https://youtube.com/watch?v=...',
+  output_path: '/Users/me/Downloads',
+  format: 'bestvideo+bestaudio',
+  audio_only: false,
+  quality: '1080p',
+  embed_thumbnail: true,
+  embed_metadata: true,
+  download_subtitles: true,
+});
+
+// Cancel active download
+await api.cancelDownload(downloadId);
+
+// Get download history
+const downloads = await api.getDownloads();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Queue Management" icon="list" href="/features/queue-management">
+    Manage multiple downloads and view history
+  </Card>
+  <Card title="Vault Storage" icon="lock" href="/features/vault">
+    Encrypt downloads in secure vault
+  </Card>
+  <Card title="Browser Extension" icon="puzzle-piece" href="/features/browser-extension">
+    One-click downloads from your browser
+  </Card>
+  <Card title="System Integration" icon="window" href="/features/system-integration">
+    Taskbar progress, notifications, and tray
+  </Card>
+</CardGroup>

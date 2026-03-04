@@ -1,0 +1,155 @@
+---
+title: 'Application Settings'
+description: 'Configure application preferences and system behavior'
+icon: 'gear'
+---
+
+## Overview
+
+Ownstash Downloader provides comprehensive settings to customize your download experience, system behavior, and storage preferences. All settings are persisted locally and synced to your Google Drive if enabled.
+
+## General Settings
+
+### Download Location
+
+Specify where downloaded files are saved on your system.
+
+<ParamField path="download_path" type="string" default="User's Downloads folder">
+  Default folder for saving downloaded media files. Click the folder icon to browse and select a custom location.
+</ParamField>
+
+<Note>
+  The default download path is automatically set to your system's Downloads folder on first launch.
+</Note>
+
+## System Preferences
+
+### Minimize to System Tray
+
+<ParamField path="minimize_to_tray" type="boolean" default="false">
+  When enabled, the app stays running in the system tray when you close the window. This allows background downloads to continue and provides quick access from the tray icon.
+</ParamField>
+
+**Benefits:**
+- Downloads continue in the background
+- Quick access from system tray
+- Reduced taskbar clutter
+- Faster app relaunch
+
+### Start on Startup
+
+<ParamField path="autostart_enabled" type="boolean" default="true">
+  Launch Ownstash Downloader automatically when your computer starts. Useful for scheduled downloads and always-on availability.
+</ParamField>
+
+<Warning>
+  On macOS and Linux, autostart requires appropriate system permissions. The app will request these on first enable.
+</Warning>
+
+## Application Updates
+
+### Auto-Check Updates
+
+<ParamField path="auto_check_app_updates" type="boolean" default="true">
+  Automatically check for application updates on startup. Updates are downloaded from GitHub Releases.
+</ParamField>
+
+<Steps>
+  <Step title="Update Check">
+    The app checks GitHub for new releases when you launch it (if enabled)
+  </Step>
+  <Step title="Notification">
+    You'll see a notification in Settings if an update is available
+  </Step>
+  <Step title="Download & Install">
+    Click "Install Update" to download and apply the update
+  </Step>
+  <Step title="Restart">
+    The app will restart automatically to complete the update
+  </Step>
+</Steps>
+
+## Data Storage
+
+### Storage Types
+
+Ownstash Downloader supports two storage modes:
+
+<Tabs>
+  <Tab title="Local Storage">
+    **Local Storage Only**
+    
+    All download history, metadata, and settings are stored locally on your device using SQLite database.
+    
+    - No account required
+    - Complete privacy
+    - No cloud dependencies
+    - Data stays on your device
+  </Tab>
+  <Tab title="Google Drive Sync">
+    **Google Drive Sync**
+    
+    Your data is stored in your personal Google Drive (not our servers).
+    
+    - Sync across devices
+    - Automatic backup
+    - Privacy-first (your Drive, your data)
+    - Two-way synchronization
+    
+    <Note>
+      Your data is stored in **your own Google Drive**, not on our servers. Only you can access it.
+    </Note>
+  </Tab>
+</Tabs>
+
+### Data Migration
+
+If you're signed in with Google, you can migrate or sync your data:
+
+<CardGroup cols={2}>
+  <Card title="Upload Local Data" icon="upload">
+    Push your local download history and settings to Google Drive. Useful for first-time setup or manual backup.
+  </Card>
+  <Card title="Sync with Google Drive" icon="arrows-rotate">
+    Perform a full two-way sync, merging data from both local storage and Google Drive.
+  </Card>
+</CardGroup>
+
+## About Information
+
+View application information and version details:
+
+- **App Version**: Current installed version (e.g., `0.1.0`)
+- **Developer**: Suman Patgiri
+- **Powered by**: yt-dlp, Tauri, React
+- **License**: MIT
+
+## Settings Storage
+
+All settings are stored using Tauri's secure storage mechanism:
+
+```javascript
+// Settings are saved as key-value pairs
+await api.saveSetting('key', 'value');
+
+// Retrieved on app launch
+const value = await api.getSetting('key');
+```
+
+<Note>
+  Settings changes take effect immediately and persist across app restarts.
+</Note>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Download Options" icon="sliders" href="/configuration/download-options">
+    Configure quality, format, and metadata preferences
+  </Card>
+  <Card title="Engine Management" icon="wrench" href="/configuration/engine-management">
+    Manage yt-dlp, SpotDL, and FFmpeg engines
+  </Card>
+  <Card title="Firebase Setup" icon="database" href="/configuration/firebase-setup">
+    Optional Firebase configuration for custom deployments
+  </Card>
+</CardGroup>

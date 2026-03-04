@@ -1,0 +1,591 @@
+---
+title: 'Queue Management'
+description: 'Manage download queues, track progress, and browse history with advanced filtering'
+icon: 'list-check'
+---
+
+## Overview
+
+The Downloads page provides a comprehensive view of all your active, completed, and failed downloads. Track real-time progress, manage queues, and access your download history.
+
+## Download Queue Interface
+
+### Active Downloads
+
+View real-time progress for ongoing downloads:
+
+```tsx
+// Active downloads section
+const activeDownloads = downloads.filter(d =>
+  d.status === 'downloading' || 
+  d.status === 'paused' || 
+  d.status === 'pending'
+);
+
+<section>
+  <h2>Active Downloads ({activeDownloads.length})</h2>
+  {activeDownloads.map(item => (
+    <DownloadCard 
+      key={item.id}
+      item={item}
+      onCancel={handleCancel}
+      onDelete={handleDelete}
+    />
+  ))}
+</section>
+```
+
+**Real-time Updates:**
+
+<Steps>
+  <Step title="Progress Tracking">
+    Live progress bar with percentage (0-100%):
+    
+    ```tsx
+    // Smooth progress animation
+    <motion.div
+      className="progress-bar"
+      initial={{ width: 0 }}
+      animate={{ width: `${progress}%` }}
+      transition={{ type: 'tween', duration: 0.2 }}
+    />
+    ```
+  </Step>
+  
+  <Step title="Speed & ETA">
+    Download speed and estimated completion time:
+    
+    ```tsx
+    <div className="download-stats">
+      <span>{item.speed}</span>  {/* "2.5 MiB/s" */}
+      <span>ETA: {item.eta}</span>  {/* "00:35" */}
+      <span>{progress.toFixed(1)}%</span>
+    </div>
+    ```
+  </Step>
+  
+  <Step title="Engine Badge">
+    Shows which download engine is being used:
+    
+    ```tsx
+    // Engine indicator
+    {item.engine_badge && (
+      <span className={cn(
+        'engine-badge',
+        item.engine_badge.includes('ACCELERATED') && 'badge-accelerated',
+        item.engine_badge.includes('SAFE') && 'badge-safe',
+        item.engine_badge.includes('MEDIA') && 'badge-media'
+      )}>
+        {item.engine_badge}
+      </span>
+    )}
+    ```
+  </Step>
+</Steps>
+
+### Download States
+
+<Accordion title="Downloading">
+**Active download in progress**
+
+```typescript
+interface DownloadProgress {
+  id: string;
+  progress: number;        // 0-100
+  speed: string;           // "2.5 MiB/s"
+  eta: string;             // "00:35"
+  status: 'downloading';
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  engine_badge?: string;   // "SNDE ACCELERATED"
+}
+```
+
+**Actions available:**
+- Cancel download
+- Remove from list
+</Accordion>
+
+<Accordion title="Pending">
+**Queued for download**
+
+Downloads waiting to start (when concurrent download limit is reached).
+
+```tsx
+<div className="status-pending">
+  <Loader2 className="animate-spin" />
+  Pending
+</div>
+```
+</Accordion>
+
+<Accordion title="Paused">
+**Download paused by user**
+
+<Note>
+Currently, downloads cannot be paused mid-stream. This status is reserved for future functionality.
+</Note>
+</Accordion>
+
+<Accordion title="Completed">
+**Successfully downloaded**
+
+```tsx
+<div className="download-complete">
+  <CheckCircle className="text-green-500" />
+  <span>Download complete</span>
+  
+  <div className="actions">
+    <button onClick={() => onPlay(item.path, item.title)}>
+      <Play /> Play
+    </button>
+    <button onClick={() => onOpenFolder(item.path)}>
+      <FolderOpen /> Open Folder
+    </button>
+  </div>
+</div>
+```
+
+**Actions available:**
+- Play file (in-app player)
+- Open containing folder
+- Delete from history
+</Accordion>
+
+<Accordion title="Failed">
+**Download failed or cancelled**
+
+```tsx
+<div className="download-failed">
+  <AlertCircle className="text-red-500" />
+  <span>Download failed</span>
+  
+  {onRetry && (
+    <button onClick={() => onRetry(item)}>
+      <RefreshCw /> Retry
+    </button>
+  )}
+</div>
+```
+
+**Actions available:**
+- Retry download
+- Delete from history
+</Accordion>
+
+## Progress Events
+
+Subscribe to real-time download updates:
+
+```tsx
+// Listen for yt-dlp progress
+useEffect(() => {
+  const unlisten = api.onDownloadProgress((progress) => {
+    setProgressMap(prev => {
+      const newMap = new Map(prev);
+      const stabilized = stabilizeProgress(progress);
+      newMap.set(progress.id, stabilized);
+      return newMap;
+    });
+    
+    // Update status in database when complete
+    if (progress.status === 'completed' || 
+        progress.status === 'failed') {
+      api.updateDownloadStatus(progress.id, progress.status);
+      setTimeout(loadDownloads, 500);
+    }
+  });
+  
+  return () => unlisten();
+}, []);
+```
+
+**Progress Stabilization:**
+
+```typescript
+// Prevent progress from jumping backwards
+const stabilizeProgress = (
+  incoming: DownloadProgress, 
+  previous?: DownloadProgress
+): DownloadProgress => {
+  const normalized = Math.min(100, Math.max(0, incoming.progress));
+  
+  if (!previous) {
+    return { ...incoming, progress: normalized };
+  }
+  
+  // Keep progress monotonic during active phases
+  if (incoming.status === 'downloading') {
+    return {
+      ...incoming,
+      progress: Math.max(previous.progress, normalized)
+    };
+  }
+  
+  return { ...incoming, progress: normalized };
+};
+```
+
+## Download Actions
+
+### Cancel Download
+
+Stop an active download:
+
+```tsx
+const handleCancel = async (id: string) => {
+  try {
+    // Try yt-dlp cancel first
+    try {
+      await api.cancelDownload(id);
+    } catch {
+      // Fallback to Spotify cancel
+      await api.cancelSpotifyDownload(id);
+    }
+    
+    toast.success('Download cancelled');
+    await api.updateDownloadStatus(id, 'cancelled');
+    loadDownloads();
+  } catch (err) {
+    toast.error('Failed to cancel download');
+  }
+};
+```
+
+**Backend cancellation:**
+
+```rust
+// Cancel signal handling
+let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel();
+
+// Store cancellation sender
+ACTIVE_DOWNLOADS.lock().unwrap()
+  .insert(download_id.clone(), cancel_tx);
+
+// Download loop with cancellation
+tokio::select! {
+  _ = &mut cancel_rx => {
+    // User cancelled
+    let _ = child.kill().await;
+    emit_progress("cancelled");
+  }
+  result = child.wait() => {
+    // Download completed
+  }
+}
+```
+
+### Delete from History
+
+Remove a download record:
+
+```tsx
+const handleDelete = async (id: string) => {
+  try {
+    await api.deleteDownload(id);
+    setDownloads(prev => prev.filter(d => d.id !== id));
+    toast.success('Download removed');
+  } catch (err) {
+    toast.error('Failed to remove download');
+  }
+};
+```
+
+### Clear All Downloads
+
+```tsx
+const handleClearAll = async () => {
+  try {
+    await api.clearDownloads();
+    setDownloads([]);
+    toast.success('All downloads cleared');
+  } catch (err) {
+    toast.error('Failed to clear downloads');
+  }
+};
+```
+
+## Download History
+
+Access your complete download history on the History page:
+
+```tsx
+// Load download history
+const [downloads, setDownloads] = useState<Download[]>([]);
+
+useEffect(() => {
+  const loadHistory = async () => {
+    const data = await api.getDownloads();
+    setDownloads(data);
+  };
+  loadHistory();
+}, []);
+```
+
+### Filtering & Search
+
+<Tabs>
+  <Tab title="By Status">
+    ```tsx
+    const [filterStatus, setFilterStatus] = useState<
+      'all' | 'completed' | 'failed'
+    >('all');
+    
+    const filtered = downloads.filter(item => 
+      filterStatus === 'all' || item.status === filterStatus
+    );
+    ```
+  </Tab>
+  
+  <Tab title="By Search Query">
+    ```tsx
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    const filtered = downloads.filter(item =>
+      item.title.toLowerCase().includes(searchQuery) ||
+      item.platform?.toLowerCase().includes(searchQuery) ||
+      item.url.toLowerCase().includes(searchQuery)
+    );
+    ```
+  </Tab>
+  
+  <Tab title="By Date Range">
+    ```tsx
+    const filterByDate = (days: number) => {
+      const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+      return downloads.filter(item => item.timestamp >= cutoff);
+    };
+    
+    // Last 7 days
+    const recentDownloads = filterByDate(7);
+    ```
+  </Tab>
+</Tabs>
+
+### History Display
+
+```tsx
+// Format time ago
+const formatTimeAgo = (timestamp: number): string => {
+  const diff = Date.now() - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (seconds < 60) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  
+  return new Date(timestamp).toLocaleDateString();
+};
+
+// History card
+<div className="history-item">
+  <img src={item.thumbnail} alt={item.title} />
+  <div>
+    <h3>{item.title}</h3>
+    <p>{item.platform} • {formatBytes(item.size_bytes)}</p>
+    <span>{formatTimeAgo(item.timestamp)}</span>
+  </div>
+</div>
+```
+
+## Playback Integration
+
+Play downloaded files directly from the Downloads page:
+
+```tsx
+const handlePlay = async (path: string, title: string) => {
+  try {
+    const mediaInfo = await api.findMediaFile(path, title);
+    let playablePath = mediaInfo.file_path;
+    
+    if (!mediaInfo.is_audio) {
+      // Transcode video for web playback
+      const result = await api.transcodeForPlayback(playablePath);
+      playablePath = result.output_path;
+    }
+    
+    setPlayerFilePath(playablePath);
+    setPlayerTitle(title);
+    setPlayerIsAudio(mediaInfo.is_audio);
+    setShowPlayer(true);
+  } catch (err) {
+    toast.error('Failed to find media file');
+  }
+};
+```
+
+### Open Download Folder
+
+```tsx
+const handleOpenFolder = async (
+  path: string, 
+  title: string, 
+  format: string
+) => {
+  try {
+    const fileName = `${title}.${format}`;
+    await api.openFolder(path, fileName);
+  } catch (err) {
+    toast.error('Failed to open folder');
+  }
+};
+```
+
+**Backend implementation:**
+
+```rust
+#[tauri::command]
+pub async fn open_folder(
+    path: String,
+    filename: String
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .args(["/select,", &full_path])
+            .spawn()?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &full_path])
+            .spawn()?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&directory)
+            .spawn()?;
+    }
+    
+    Ok(())
+}
+```
+
+## Database Schema
+
+Downloads are stored in SQLite:
+
+```sql
+CREATE TABLE downloads (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    platform TEXT,
+    format TEXT,
+    status TEXT NOT NULL,  -- 'pending', 'downloading', 'completed', 'failed'
+    path TEXT,
+    size_bytes INTEGER,
+    thumbnail TEXT,
+    timestamp INTEGER NOT NULL,
+    metadata TEXT  -- JSON for additional data
+);
+
+CREATE INDEX idx_downloads_timestamp ON downloads(timestamp DESC);
+CREATE INDEX idx_downloads_status ON downloads(status);
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Concurrent Downloads">
+    Limit active downloads to 2-3 for optimal performance:
+    
+    ```tsx
+    const MAX_CONCURRENT = 3;
+    const activeCount = downloads.filter(
+      d => d.status === 'downloading'
+    ).length;
+    
+    if (activeCount >= MAX_CONCURRENT) {
+      toast.warning(`Maximum ${MAX_CONCURRENT} concurrent downloads`);
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Storage Management">
+    Monitor disk space before downloading:
+    
+    ```typescript
+    // Check available space
+    const checkDiskSpace = async (requiredBytes: number) => {
+      const stats = await api.getDiskSpace();
+      if (stats.available < requiredBytes) {
+        throw new Error('Insufficient disk space');
+      }
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Error Handling">
+    Implement retry logic for failed downloads:
+    
+    ```tsx
+    const handleRetry = async (item: Download) => {
+      await api.startDownload({
+        ...item,
+        id: uuid(),  // New ID for retry
+      });
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Progress Not Updating
+
+1. Check WebSocket connection
+2. Verify download process is active
+3. Restart the app if progress is frozen
+
+### Download Stuck at 99%
+
+This usually means yt-dlp is merging video/audio streams:
+
+```rust
+// Post-processing phase
+if line.contains("[merger]") || line.contains("merging formats") {
+    emit_progress(DownloadProgress {
+        progress: 99.0,
+        speed: "Merging...",
+        status: "downloading",
+    });
+}
+```
+
+## API Reference
+
+```typescript
+// Get all downloads
+const downloads = await api.getDownloads();
+
+// Update download status
+await api.updateDownloadStatus(id, 'completed');
+
+// Delete single download
+await api.deleteDownload(id);
+
+// Clear all downloads
+await api.clearDownloads();
+
+// Cancel active download
+await api.cancelDownload(id);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Vault Storage" icon="lock" href="/features/vault">
+    Encrypt sensitive downloads in secure vault
+  </Card>
+  <Card title="Browser Extension" icon="puzzle-piece" href="/features/browser-extension">
+    Quick downloads from any website
+  </Card>
+</CardGroup>

@@ -1,0 +1,378 @@
+---
+title: Download Commands
+description: Tauri commands for managing media downloads with yt-dlp
+---
+
+Commands for downloading media from YouTube and 1000+ supported platforms using yt-dlp.
+
+## start_download
+
+Start downloading media from a URL.
+
+```typescript
+await invoke('start_download', { request: DownloadRequest })
+```
+
+<ParamField path="request" type="DownloadRequest" required>
+  Download configuration object
+  
+  <Expandable title="DownloadRequest properties">
+    <ParamField path="id" type="string" required>
+      Unique identifier for this download (use `generateDownloadId()`)
+    </ParamField>
+    
+    <ParamField path="url" type="string" required>
+      Media URL to download
+    </ParamField>
+    
+    <ParamField path="output_path" type="string" required>
+      Directory path where file will be saved
+    </ParamField>
+    
+    <ParamField path="format" type="string | null">
+      yt-dlp format string (e.g., "bestvideo+bestaudio"). Leave null to use quality preset.
+    </ParamField>
+    
+    <ParamField path="audio_only" type="boolean" required>
+      Extract audio only
+    </ParamField>
+    
+    <ParamField path="quality" type="string | null">
+      Quality preset: "best", "4k", "2160p", "1080p", "720p", "480p", "360p"
+    </ParamField>
+    
+    <ParamField path="embed_thumbnail" type="boolean" required>
+      Embed thumbnail in media file metadata
+    </ParamField>
+    
+    <ParamField path="embed_metadata" type="boolean" required>
+      Embed title, artist, album metadata
+    </ParamField>
+    
+    <ParamField path="download_subtitles" type="boolean" required>
+      Download and embed subtitles (video only)
+    </ParamField>
+    
+    <ParamField path="audio_quality" type="string" required>
+      Audio bitrate: "128k", "192k", "256k", "320k", "0" (best)
+    </ParamField>
+    
+    <ParamField path="audio_format" type="string" required>
+      Audio format: "mp3", "m4a", "opus", "flac", "wav"
+    </ParamField>
+    
+    <ParamField path="video_format" type="string" required>
+      Video container: "mp4", "mkv", "webm"
+    </ParamField>
+    
+    <ParamField path="use_sponsorblock" type="boolean" required>
+      Remove sponsored segments (YouTube only)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success. Download progress is emitted via `download-progress` event.
+</ResponseField>
+
+### Usage Example
+
+```typescript
+import { invoke } from '@tauri-apps/api/core'
+import { generateDownloadId } from '@/services/api'
+
+const downloadId = generateDownloadId()
+
+await invoke('start_download', {
+  request: {
+    id: downloadId,
+    url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    output_path: '/Users/me/Downloads',
+    format: null,
+    audio_only: false,
+    quality: '1080p',
+    embed_thumbnail: true,
+    embed_metadata: true,
+    download_subtitles: true,
+    audio_quality: '192k',
+    audio_format: 'mp3',
+    video_format: 'mp4',
+    use_sponsorblock: false
+  }
+})
+```
+
+---
+
+## cancel_download
+
+Cancel an active download.
+
+```typescript
+await invoke('cancel_download', { id: string })
+```
+
+<ParamField path="id" type="string" required>
+  Download ID to cancel
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success. A `download-progress` event with status "cancelled" will be emitted.
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('cancel_download', { id: 'download-123' })
+```
+
+---
+
+## get_media_info
+
+Fetch metadata about a media URL without downloading.
+
+```typescript
+const info = await invoke<MediaInfo>('get_media_info', {
+  url: string,
+  enable_sponsorblock?: boolean
+})
+```
+
+<ParamField path="url" type="string" required>
+  Media URL to analyze
+</ParamField>
+
+<ParamField path="enable_sponsorblock" type="boolean">
+  Check for SponsorBlock segments (slower, default: false)
+</ParamField>
+
+<ResponseField name="MediaInfo" type="object">
+  <Expandable title="properties">
+    <ResponseField name="title" type="string">
+      Media title
+    </ResponseField>
+    
+    <ResponseField name="duration" type="number | null">
+      Duration in seconds
+    </ResponseField>
+    
+    <ResponseField name="thumbnail" type="string | null">
+      Thumbnail URL
+    </ResponseField>
+    
+    <ResponseField name="formats" type="FormatInfo[]">
+      Available quality formats
+    </ResponseField>
+    
+    <ResponseField name="platform" type="string">
+      Platform name (e.g., "youtube", "vimeo")
+    </ResponseField>
+    
+    <ResponseField name="uploader" type="string | null">
+      Channel/uploader name
+    </ResponseField>
+    
+    <ResponseField name="description" type="string | null">
+      Media description
+    </ResponseField>
+    
+    <ResponseField name="view_count" type="number | null">
+      View count
+    </ResponseField>
+    
+    <ResponseField name="like_count" type="number | null">
+      Like count
+    </ResponseField>
+    
+    <ResponseField name="upload_date" type="string | null">
+      Upload date (YYYYMMDD format)
+    </ResponseField>
+    
+    <ResponseField name="webpage_url" type="string | null">
+      Canonical URL
+    </ResponseField>
+    
+    <ResponseField name="chapters" type="Chapter[] | null">
+      Video chapters/timestamps
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const info = await invoke<MediaInfo>('get_media_info', {
+  url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+  enable_sponsorblock: false
+})
+
+console.log(`Title: ${info.title}`)
+console.log(`Duration: ${info.duration}s`)
+console.log(`Available formats: ${info.formats.length}`)
+```
+
+---
+
+## get_downloads
+
+Get all downloads from the database.
+
+```typescript
+const downloads = await invoke<Download[]>('get_downloads')
+```
+
+<ResponseField name="Download[]" type="array">
+  Array of download records
+  
+  <Expandable title="Download properties">
+    <ResponseField name="id" type="string">
+      Unique download ID
+    </ResponseField>
+    
+    <ResponseField name="title" type="string">
+      Media title
+    </ResponseField>
+    
+    <ResponseField name="url" type="string">
+      Source URL
+    </ResponseField>
+    
+    <ResponseField name="format" type="string">
+      Download format/quality
+    </ResponseField>
+    
+    <ResponseField name="path" type="string">
+      File path on disk
+    </ResponseField>
+    
+    <ResponseField name="timestamp" type="number">
+      Unix timestamp (seconds)
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      "completed", "failed", "cancelled"
+    </ResponseField>
+    
+    <ResponseField name="size_bytes" type="number | null">
+      File size in bytes
+    </ResponseField>
+    
+    <ResponseField name="platform" type="string | null">
+      Platform name
+    </ResponseField>
+    
+    <ResponseField name="thumbnail" type="string | null">
+      Thumbnail URL
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const downloads = await invoke<Download[]>('get_downloads')
+const completed = downloads.filter(d => d.status === 'completed')
+console.log(`${completed.length} completed downloads`)
+```
+
+---
+
+## get_search_history
+
+Get recent search/fetch history.
+
+```typescript
+const history = await invoke<SearchHistory[]>('get_search_history', { limit: number })
+```
+
+<ParamField path="limit" type="number" required>
+  Maximum number of results to return
+</ParamField>
+
+<ResponseField name="SearchHistory[]" type="array">
+  <Expandable title="SearchHistory properties">
+    <ResponseField name="id" type="string">
+      Unique record ID
+    </ResponseField>
+    
+    <ResponseField name="query" type="string">
+      Search query or URL
+    </ResponseField>
+    
+    <ResponseField name="timestamp" type="number">
+      Unix timestamp (seconds)
+    </ResponseField>
+    
+    <ResponseField name="title" type="string | null">
+      Media title (if fetched)
+    </ResponseField>
+    
+    <ResponseField name="thumbnail" type="string | null">
+      Thumbnail URL (if available)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const recent = await invoke<SearchHistory[]>('get_search_history', { limit: 10 })
+recent.forEach(item => {
+  console.log(`${item.title || item.query} - ${new Date(item.timestamp * 1000).toLocaleString()}`)
+})
+```
+
+---
+
+## probe_direct_file
+
+Probe a direct file URL to get size and filename without yt-dlp.
+
+```typescript
+const info = await invoke<DirectFileInfo>('probe_direct_file', { url: string })
+```
+
+<ParamField path="url" type="string" required>
+  Direct file URL to probe
+</ParamField>
+
+<ResponseField name="DirectFileInfo" type="object">
+  <Expandable title="properties">
+    <ResponseField name="file_size" type="number">
+      File size in bytes
+    </ResponseField>
+    
+    <ResponseField name="filename" type="string | null">
+      Extracted filename from headers or URL
+    </ResponseField>
+    
+    <ResponseField name="content_type" type="string | null">
+      MIME type from Content-Type header
+    </ResponseField>
+    
+    <ResponseField name="is_media" type="boolean">
+      Whether file appears to be media (video/audio)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const info = await invoke<DirectFileInfo>('probe_direct_file', {
+  url: 'https://example.com/video.mp4'
+})
+
+console.log(`File: ${info.filename}`)
+console.log(`Size: ${(info.file_size / 1024 / 1024).toFixed(2)} MB`)
+console.log(`Type: ${info.content_type}`)
+```
+
+---
+
+## Related
+
+- [Vault Commands](/api/commands/vault) - Encrypted storage
+- [Spotify Commands](/api/commands/spotify) - Spotify downloads
+- [Events](/api/events) - Download progress events

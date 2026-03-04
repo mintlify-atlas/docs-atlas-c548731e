@@ -1,0 +1,418 @@
+---
+title: System Architecture
+description: Deep dive into Ownstash Downloader's technical architecture
+---
+
+Ownstash Downloader is built on a modern desktop-first architecture using Tauri 2, combining the performance of Rust with the flexibility of React.
+
+## Architecture Overview
+
+The application follows a **hybrid native-web architecture** with clear separation between backend and frontend concerns.
+
+```
+┌─────────────────────────────────────────────────┐
+│           Frontend (React + TypeScript)         │
+│  ┌──────────────────────────────────────────┐  │
+│  │  UI Components (TailwindCSS + shadcn)   │  │
+│  │  State Management (React Context)        │  │
+│  │  Animations (Framer Motion)              │  │
+│  └──────────────────────────────────────────┘  │
+└────────────────┬────────────────────────────────┘
+                 │ Tauri IPC (invoke/emit)
+┌────────────────▼────────────────────────────────┐
+│            Backend (Rust + Tauri 2)             │
+│  ┌──────────────────────────────────────────┐  │
+│  │  Command Layer (Tauri Commands)          │  │
+│  │  Core Modules:                            │  │
+│  │    • SNDE Engine (Parallel Downloads)     │  │
+│  │    • Download Router (Smart Routing)      │  │
+│  │    • Media Downloader (yt-dlp/SpotDL)     │  │
+│  │    • Vault System (AES-GCM Encryption)    │  │
+│  │    • Database (SQLite)                    │  │
+│  │    • Native Integration (OS APIs)         │  │
+│  └──────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│         External Binaries (Bundled)             │
+│    yt-dlp.exe │ spotdl.exe │ ffmpeg.exe         │
+└─────────────────────────────────────────────────┘
+```
+
+## Technology Stack
+
+### Frontend Layer
+
+<CardGroup cols={2}>
+  <Card title="React 19" icon="react">
+    Modern React with hooks for state management and UI composition
+  </Card>
+  
+  <Card title="TypeScript" icon="code">
+    Type-safe development with full IntelliSense support
+  </Card>
+  
+  <Card title="Vite" icon="bolt">
+    Lightning-fast HMR and optimized production builds
+  </Card>
+  
+  <Card title="TailwindCSS" icon="paintbrush">
+    Utility-first styling with custom design system
+  </Card>
+</CardGroup>
+
+**Key Frontend Dependencies:**
+- **UI Components**: Radix UI primitives (Dialog, Dropdown, Progress, etc.)
+- **Animations**: Framer Motion for smooth transitions
+- **Icons**: Lucide React for consistent iconography
+- **3D Graphics**: Three.js with React Three Fiber for visual effects
+
+### Backend Layer
+
+<CardGroup cols={2}>
+  <Card title="Tauri 2" icon="window">
+    Cross-platform desktop framework with native capabilities
+  </Card>
+  
+  <Card title="Rust" icon="rust">
+    Memory-safe systems programming for performance-critical code
+  </Card>
+  
+  <Card title="Tokio" icon="zap">
+    Async runtime for concurrent download operations
+  </Card>
+  
+  <Card title="SQLite" icon="database">
+    Embedded database via rusqlite for local data persistence
+  </Card>
+</CardGroup>
+
+**Core Rust Crates:**
+```toml
+# HTTP & Networking
+reqwest = { version = "0.12", features = ["json", "stream"] }
+warp = "0.3"  # Local HTTP servers for media streaming
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Async Runtime
+tokio = { version = "1", features = ["full", "sync"] }
+futures-util = "0.3"
+
+# Encryption (Vault)
+aes-gcm = "0.10"
+argon2 = "0.5"
+
+# Compression (Vault folders)
+zip = "0.6"
+sevenz-rust = "0.6"
+tar = "0.4"
+flate2 = "1.0"
+```
+
+## Core Modules
+
+### 1. SNDE Engine (Smart Network Download Engine)
+
+**Location**: `src-tauri/src/snde.rs`
+
+High-performance parallel download engine for static files.
+
+<Info>
+  See [SNDE Engine](/advanced/snde-engine) for detailed documentation.
+</Info>
+
+**Key Features:**
+- Multi-connection parallel downloading (up to 16 connections)
+- Forced HTTP/1.1 for TCP-level parallelism
+- Automatic throttling detection
+- Safe range management
+- Integration with Host Reputation system
+
+### 2. Download Router
+
+**Location**: `src-tauri/src/download_router.rs`
+
+Intelligent routing system that determines the optimal download strategy.
+
+**Decision Flow:**
+```rust
+pub async fn route(&self, url: &str) -> RoutingDecision {
+    // 1. Check heuristics (media domains vs static files)
+    // 2. Get host reputation if available
+    // 3. Perform Range request probe
+    // 4. Make decision based on all data
+}
+```
+
+**Routing Strategies:**
+- **Media Engine**: For YouTube, Twitch, Spotify, etc. (uses yt-dlp/SpotDL)
+- **SNDE Accelerated**: For static files with Range support (parallel)
+- **SNDE Safe**: For static files without Range support (single connection)
+
+### 3. Media Downloader
+
+**Location**: `src-tauri/src/downloader.rs`, `src-tauri/src/spotify_downloader.rs`
+
+Manages external download engines for media platforms.
+
+**Supported Engines:**
+- **yt-dlp**: 1000+ video/audio platforms
+- **SpotDL**: Spotify downloads with metadata
+- **FFmpeg**: Media transcoding and format conversion
+
+### 4. Host Reputation System
+
+**Location**: `src-tauri/src/host_reputation.rs`
+
+Maintains historical performance data for each domain.
+
+```rust
+pub struct HostReputation {
+    pub domain: String,
+    pub max_stable_conns: u8,        // Optimal connection count
+    pub favored_protocol: String,     // http1, http2, or http3
+    pub health_score: u8,             // 0-100 based on performance
+    pub supports_range: bool,
+    pub avg_speed_kbps: u32,
+    pub success_count: u32,
+    pub failure_count: u32,
+}
+```
+
+### 5. Vault System
+
+**Location**: `src-tauri/src/vault.rs`, `src-tauri/src/vault_download.rs`
+
+AES-GCM encrypted storage with PIN-based access.
+
+**Security Features:**
+- **Encryption**: AES-256-GCM with Argon2id key derivation
+- **Authentication**: 6-digit PIN with rate limiting
+- **Storage**: Encrypted files with metadata
+- **Direct Download**: Download files directly into encrypted vault
+
+### 6. Database Layer
+
+**Location**: `src-tauri/src/database.rs`
+
+SQLite-backed persistence for all application data.
+
+**Tables:**
+- `downloads`: Download history and queue
+- `search_history`: Search queries and results
+- `settings`: User preferences and configuration
+- `host_reputation`: Domain performance history
+
+### 7. Native Integration
+
+**Location**: `src-tauri/src/native_integration.rs`
+
+OS-level integrations for enhanced user experience.
+
+**Features:**
+- **Taskbar Progress**: Real-time download progress in taskbar (Windows)
+- **System Notifications**: Native OS notifications
+- **Deep Links**: Custom URL scheme (`ownstash://`) for browser extension
+- **System Tray**: Background operation with tray icon
+
+## IPC Communication
+
+### Command Pattern
+
+Tauri commands provide type-safe communication between frontend and backend.
+
+**Backend (Rust):**
+```rust
+#[tauri::command]
+pub async fn start_download(
+    url: String,
+    format: String,
+    output_path: String,
+    app: AppHandle,
+) -> Result<DownloadResult, String> {
+    // Implementation
+}
+```
+
+**Frontend (TypeScript):**
+```typescript
+import { invoke } from '@tauri-apps/api/core';
+
+const result = await invoke<DownloadResult>('start_download', {
+  url: 'https://example.com/video',
+  format: 'mp4',
+  outputPath: '/path/to/save',
+});
+```
+
+### Event System
+
+Real-time updates via Tauri's event emitter.
+
+**Backend (Rust):**
+```rust
+app_handle.emit("download-progress", SNDEProgress {
+    id: download_id.clone(),
+    progress: 45.2,
+    speed: "5.2 MB/s".to_string(),
+    active_connections: 8,
+    // ...
+});
+```
+
+**Frontend (TypeScript):**
+```typescript
+import { listen } from '@tauri-apps/api/event';
+
+const unlisten = await listen<SNDEProgress>('download-progress', (event) => {
+  console.log('Progress:', event.payload.progress);
+  updateUI(event.payload);
+});
+```
+
+## Build System
+
+### Development Build
+
+```bash
+# Install frontend dependencies
+npm install
+
+# Download bundled binaries (yt-dlp, spotdl, ffmpeg)
+npm run download-binaries
+
+# Start development server with hot reload
+npm run tauri dev
+```
+
+### Production Build
+
+```bash
+# Full production build with installer
+npm run build-installer
+```
+
+This runs:
+1. `npm run download-binaries` - Download external tools
+2. `npm run build` - Build React frontend (Vite)
+3. `npm run tauri build` - Build Rust backend and create installer
+
+**Build Outputs:**
+- Windows: NSIS installer (`.exe`) + MSI
+- Updater artifacts: `.nsis.zip` with signature
+- Update manifest: `latest.json`
+
+### Resource Bundling
+
+External binaries are bundled into the installer via `tauri.conf.json`:
+
+```json
+"bundle": {
+  "resources": [
+    "binaries/yt-dlp.exe",
+    "binaries/spotdl.exe",
+    "binaries/ffmpeg.exe",
+    "binaries/ffprobe.exe"
+  ]
+}
+```
+
+## Performance Optimizations
+
+### Rust Compiler Flags
+
+```toml
+[profile.release]
+panic = "abort"        # Smaller binary size
+codegen-units = 1      # Better optimization
+lto = true             # Link-time optimization
+opt-level = "s"        # Optimize for size
+strip = true           # Remove debug symbols
+```
+
+### Frontend Optimizations
+
+- **Code Splitting**: Vite automatically splits vendor code
+- **Tree Shaking**: Unused code is eliminated
+- **Minification**: Production builds are minified
+- **Asset Optimization**: Images and static assets are optimized
+
+### Runtime Optimizations
+
+- **Connection Pooling**: HTTP clients reuse connections
+- **Async I/O**: All file operations are non-blocking
+- **Database Indexing**: SQLite indexes for fast queries
+- **Lazy Loading**: Components load on-demand
+
+## Security Considerations
+
+### Content Security Policy
+
+Tauri's CSP prevents unauthorized code execution:
+
+```json
+"security": {
+  "csp": null,
+  "capabilities": ["default"]
+}
+```
+
+### Secure Storage
+
+Sensitive data uses OS keyring integration:
+
+**Location**: `src-tauri/src/secure_storage.rs`
+
+```rust
+#[tauri::command]
+pub fn secure_save_setting(key: String, value: String) -> Result<(), String>
+```
+
+### Vault Encryption
+
+- **Algorithm**: AES-256-GCM (authenticated encryption)
+- **Key Derivation**: Argon2id with salt
+- **PIN Security**: Rate limiting and lockout after failed attempts
+
+## Extension Architecture
+
+### Browser Extension Integration
+
+The Chrome extension communicates via:
+
+1. **Deep Links**: `ownstash://download?url=<encoded_url>`
+2. **Local WebSocket**: Extension server on `localhost:42069`
+
+**Location**: `src-tauri/src/extension_server.rs`
+
+```rust
+pub fn start_extension_server(app_handle: AppHandle) {
+    tokio::spawn(async move {
+        warp::serve(routes)
+            .run(([127, 0, 0, 1], 42069))
+            .await;
+    });
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SNDE Engine" icon="bolt" href="/advanced/snde-engine">
+    Learn about the parallel download acceleration system
+  </Card>
+  
+  <Card title="Building from Source" icon="hammer" href="/advanced/building-from-source">
+    Complete guide to building and developing locally
+  </Card>
+  
+  <Card title="Release Automation" icon="rocket" href="/advanced/release-automation">
+    Understand the CI/CD pipeline for releases
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/commands/downloads">
+    Browse all available Tauri commands
+  </Card>
+</CardGroup>

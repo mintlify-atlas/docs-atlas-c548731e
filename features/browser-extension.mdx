@@ -1,0 +1,718 @@
+---
+title: 'Browser Extension'
+description: 'Chrome extension for one-click downloads and vault mode interception'
+icon: 'chrome'
+---
+
+## Overview
+
+The Ownstash Chrome extension enables seamless downloading from any website. Browse normally, and when you find content you want, download it with a single click.
+
+<Note>
+The extension communicates with your local Ownstash app via HTTP server and deep links. Your downloads are processed locally - nothing is sent to external servers.
+</Note>
+
+## Installation
+
+<Steps>
+  <Step title="Download Extension">
+    Get the extension from:
+    - **Chrome Web Store** (recommended)
+    - Or load unpacked from `chrome-extension/` directory
+  </Step>
+  
+  <Step title="Enable for Sites">
+    Right-click any page and select:
+    - **"Toggle this site in Ownstash"** to enable/disable
+    - Or use the extension popup to manage sites
+    
+    Popular sites are pre-enabled:
+    ```javascript
+    const defaultSites = [
+        { domain: 'youtube.com', addedAt: Date.now() },
+        { domain: 'music.youtube.com', addedAt: Date.now() },
+        { domain: 'soundcloud.com', addedAt: Date.now() },
+        { domain: 'vimeo.com', addedAt: Date.now() },
+    ];
+    ```
+  </Step>
+  
+  <Step title="Launch Ownstash App">
+    The extension needs the Ownstash app running to process downloads.
+    
+    **Extension Server Port:** `http://127.0.0.1:47152`
+  </Step>
+</Steps>
+
+## Features
+
+### Context Menu Integration
+
+Right-click anywhere to download:
+
+```javascript
+// background.js - Context menu setup
+function createContextMenu() {
+    chrome.contextMenus.removeAll(() => {
+        // Download current page
+        chrome.contextMenus.create({
+            id: 'ownstash-download-page',
+            title: 'Download with Ownstash',
+            contexts: ['page', 'frame']
+        });
+        
+        // Download link
+        chrome.contextMenus.create({
+            id: 'ownstash-download-link',
+            title: 'Download link with Ownstash',
+            contexts: ['link']
+        });
+        
+        // Download media
+        chrome.contextMenus.create({
+            id: 'ownstash-download-media',
+            title: 'Download media with Ownstash',
+            contexts: ['video', 'audio']
+        });
+    });
+}
+```
+
+**Context Menu Handler:**
+
+```javascript
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    let url = '';
+    
+    switch (info.menuItemId) {
+        case 'ownstash-download-page':
+            url = info.pageUrl || tab.url;
+            break;
+        
+        case 'ownstash-download-link':
+            url = info.linkUrl;
+            break;
+        
+        case 'ownstash-download-media':
+            url = info.srcUrl || info.pageUrl;
+            break;
+        
+        case 'ownstash-toggle-site':
+            await toggleSite(tab.url);
+            return;
+    }
+    
+    if (url) {
+        sendToApp(url);
+    }
+});
+```
+
+### Site Management
+
+Enable/disable sites from the popup:
+
+```javascript
+// popup.js - Toggle current site
+async function toggleCurrentSite() {
+    if (!currentDomain) return;
+    
+    if (isSiteEnabled(currentDomain)) {
+        await removeSite(currentDomain);
+    } else {
+        await addSite(currentDomain);
+    }
+}
+
+async function addSite(domain) {
+    const newSite = {
+        domain: domain,
+        addedAt: Date.now(),
+        faviconUrl: currentTab ? getFaviconUrl(currentTab.url) : null
+    };
+    
+    enabledSites.push(newSite);
+    await chrome.storage.local.set({ 
+        [STORAGE_KEYS.ENABLED_SITES]: enabledSites 
+    });
+    
+    notifyContentScript('siteEnabled', { domain });
+}
+```
+
+**Blocked Domains:**
+
+Some platforms work better when pasted directly in the app:
+
+```javascript
+// Blocked domains - better handled via app
+const BLOCKED_DOMAINS = [
+    'open.spotify.com',
+    'spotify.com',
+];
+
+function isBlockedDomain(domain) {
+    return BLOCKED_DOMAINS.some(blocked =>
+        domain === blocked || domain.endsWith('.' + blocked)
+    );
+}
+```
+
+### Communication with App
+
+The extension sends URLs to the Ownstash app via HTTP:
+
+```javascript
+const EXTENSION_SERVER_URL = 'http://127.0.0.1:47152';
+
+async function sendToApp(url) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const response = await fetch(`${EXTENSION_SERVER_URL}/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                showNotification('Sent to Ownstash', 'Download started');
+                return { success: true };
+            }
+        }
+    } catch (e) {
+        // App not running - try deep link
+        return await launchAppWithDeepLink(url);
+    }
+}
+```
+
+**Deep Link Fallback:**
+
+If the app isn't running, launch it via protocol handler:
+
+```javascript
+async function launchAppWithDeepLink(url) {
+    const encodedUrl = encodeURIComponent(url);
+    const deepLinkUrl = `ownstash://download?url=${encodedUrl}`;
+    
+    // Open deep link in new tab
+    const tab = await chrome.tabs.create({ 
+        url: deepLinkUrl, 
+        active: false 
+    });
+    
+    // Close tab after app receives message
+    setTimeout(() => {
+        chrome.tabs.remove(tab.id).catch(() => {});
+    }, 1000);
+    
+    showNotification('Launching Ownstash', 'Opening app...');
+    return { success: true, launched: true };
+}
+```
+
+## Vault Download Mode
+
+<Warning>
+**Vault Mode intercepts ALL browser downloads** and sends them to your encrypted vault instead of the normal download folder.
+</Warning>
+
+### Enable Vault Mode
+
+```javascript
+// popup.js - Toggle vault download mode
+async function toggleVaultDownloadMode(enabled) {
+    vaultDownloadEnabled = enabled;
+    
+    // Save to storage
+    await chrome.storage.local.set({ 
+        [STORAGE_KEYS.VAULT_DOWNLOAD_ENABLED]: enabled 
+    });
+    
+    // Notify background script
+    await chrome.runtime.sendMessage({
+        action: 'toggleVaultDownload',
+        enabled: enabled
+    });
+    
+    if (enabled) {
+        showNotification('🔒 Vault Mode ON', 'Downloads go to vault');
+    } else {
+        showNotification('📥 Vault Mode OFF', 'Normal downloads');
+    }
+}
+```
+
+### Download Interception
+
+When vault mode is active, the extension intercepts all downloads:
+
+```javascript
+// background.js - Intercept downloads
+chrome.downloads.onCreated.addListener(async (downloadItem) => {
+    if (!vaultDownloadEnabled) {
+        // Vault mode off - let download proceed normally
+        return;
+    }
+    
+    console.log('[Vault] Intercepting:', downloadItem);
+    
+    const downloadUrl = downloadItem.finalUrl || downloadItem.url;
+    
+    // Cancel browser download immediately
+    try {
+        await chrome.downloads.cancel(downloadItem.id);
+        await chrome.downloads.erase({ id: downloadItem.id });
+    } catch (e) {
+        console.warn('[Vault] Could not cancel download:', e);
+    }
+    
+    // Extract filename
+    let filename = await getBestFilename(downloadItem, downloadUrl);
+    
+    // Send to Ownstash Vault
+    await sendToVault(downloadUrl, filename, downloadItem.fileSize || 0);
+});
+```
+
+**Filename Extraction:**
+
+```javascript
+async function getBestFilename(downloadItem, url) {
+    // 1. Try suggested filename
+    if (downloadItem.filename) {
+        const parts = downloadItem.filename.split(/[\/\\]/);
+        const name = parts[parts.length - 1];
+        if (name && name !== 'download') {
+            return name;
+        }
+    }
+    
+    // 2. Try Content-Disposition header
+    try {
+        const response = await fetch(url, { method: 'HEAD' });
+        const contentDisposition = response.headers.get('content-disposition');
+        
+        if (contentDisposition) {
+            const match = contentDisposition.match(
+                /filename[^;=\n]*=(?:([\\?['"])(.*?)\1|([^;\n]*))/i
+            );
+            if (match) {
+                const name = (match[2] || match[3] || '').trim();
+                if (name && name !== 'download') {
+                    return decodeURIComponent(name);
+                }
+            }
+        }
+    } catch (e) {
+        console.log('[Vault] HEAD request failed:', e);
+    }
+    
+    // 3. Extract from URL
+    return extractFilenameFromUrl(url);
+}
+```
+
+**Send to Vault:**
+
+```javascript
+async function sendToVault(url, filename, fileSize) {
+    try {
+        const response = await fetch(`${EXTENSION_SERVER_URL}/vault-download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                url: url,
+                filename: filename,
+                fileSize: fileSize,
+                source: 'chrome_extension_intercept'
+            }),
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                showNotification('🔒 Vault Download', 
+                    `"${filename}" sent to Secure Vault`);
+            }
+        }
+    } catch (e) {
+        // Fallback to deep link
+        return await launchAppWithVaultDeepLink(url, filename);
+    }
+}
+```
+
+## Badge Indicators
+
+The extension icon shows the current status:
+
+```javascript
+// Update badge for enabled sites
+async function updateBadge(tabId, url) {
+    const urlObj = new URL(url);
+    const domain = urlObj.hostname.replace(/^www\./, '');
+    
+    const result = await chrome.storage.local.get(STORAGE_KEYS.ENABLED_SITES);
+    const sites = result[STORAGE_KEYS.ENABLED_SITES] || [];
+    
+    const isEnabled = sites.some(site => site.domain === domain);
+    
+    if (isEnabled) {
+        chrome.action.setBadgeText({ text: '✓', tabId });
+        chrome.action.setBadgeBackgroundColor({ color: '#10b981', tabId });
+    } else {
+        chrome.action.setBadgeText({ text: '', tabId });
+    }
+}
+
+// Update vault mode badge
+function updateVaultBadge() {
+    if (vaultDownloadEnabled) {
+        chrome.action.setBadgeText({ text: '🔒' });
+        chrome.action.setBadgeBackgroundColor({ color: '#8b5cf6' });
+    } else {
+        chrome.action.setBadgeText({ text: '' });
+    }
+}
+```
+
+## Backend: Extension Server
+
+The Ownstash app runs a local HTTP server for extension communication:
+
+```rust
+// extension_server.rs
+use axum::{
+    extract::Json,
+    routing::{get, post},
+    Router,
+};
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize)]
+struct DownloadRequest {
+    url: String,
+}
+
+#[derive(Serialize)]
+struct DownloadResponse {
+    success: bool,
+    message: Option<String>,
+}
+
+pub fn start_extension_server(app_handle: AppHandle) {
+    tokio::spawn(async move {
+        let app = Router::new()
+            .route("/health", get(health_check))
+            .route("/download", post(handle_download))
+            .route("/vault-download", post(handle_vault_download))
+            .layer(
+                tower_http::cors::CorsLayer::new()
+                    .allow_origin(tower_http::cors::Any)
+                    .allow_methods([Method::GET, Method::POST])
+                    .allow_headers([header::CONTENT_TYPE])
+            );
+        
+        let addr = SocketAddr::from(([127, 0, 0, 1], 47152));
+        println!("[ExtensionServer] Starting on {}", addr);
+        
+        axum::Server::bind(&addr)
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    });
+}
+
+async fn health_check() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
+async fn handle_download(
+    Json(payload): Json<DownloadRequest>
+) -> Json<DownloadResponse> {
+    // Emit to frontend
+    app_handle.emit("extension-download-request", &payload.url);
+    
+    Json(DownloadResponse {
+        success: true,
+        message: Some("Download request received".to_string()),
+    })
+}
+```
+
+## Deep Link Protocol
+
+The app registers a custom protocol handler:
+
+**URL Scheme:** `ownstash://`
+
+<Tabs>
+  <Tab title="Download">
+    ```
+    ownstash://download?url=https://youtube.com/watch?v=...
+    ```
+  </Tab>
+  
+  <Tab title="Vault Download">
+    ```
+    ownstash://vault-download?url=https://...&filename=video.mp4
+    ```
+  </Tab>
+  
+  <Tab title="OAuth Callback">
+    ```
+    ownstash://auth?access_token=...&refresh_token=...
+    ```
+  </Tab>
+</Tabs>
+
+**Backend Handler:**
+
+```rust
+// lib.rs - Deep link listener
+app.listen("deep-link://new-url", move |event| {
+    let payload = event.payload();
+    
+    // OAuth callback
+    if payload.contains("auth") || payload.contains("access_token") {
+        show_main_window(&handle);
+        let _ = handle.emit("oauth-deep-link", payload);
+        return;
+    }
+    
+    // Download request
+    if let Some(download_url) = parse_deep_link(payload) {
+        show_main_window(&handle);
+        let _ = handle.emit("extension-download-request", &download_url);
+    }
+});
+
+fn parse_deep_link(url: &str) -> Option<String> {
+    // Parse: ownstash://download?url=<encoded_url>
+    let parsed = url::Url::parse(url).ok()?;
+    
+    if parsed.scheme() != "ownstash" {
+        return None;
+    }
+    
+    match parsed.host_str()? {
+        "download" | "vault-download" => {
+            parsed.query_pairs()
+                .find(|(key, _)| key == "url")
+                .map(|(_, value)| value.to_string())
+        }
+        _ => None
+    }
+}
+```
+
+## Popup UI
+
+The extension popup shows:
+
+```html
+<!-- popup.html -->
+<div class="popup-container">
+  <!-- Current Site Card -->
+  <div class="site-card">
+    <div class="site-favicon">
+      <img id="faviconImg" />
+      <div id="faviconFallback">Y</div>
+    </div>
+    <div class="site-info">
+      <h3 id="siteName">YouTube</h3>
+      <p id="siteUrl">youtube.com</p>
+      <div id="siteStatus">
+        <span class="status-badge status-enabled">Enabled</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Actions -->
+  <div class="actions">
+    <button id="btnToggleSite" class="btn-primary">
+      <span id="btnToggleText">Add This Site</span>
+    </button>
+    <button id="btnDownload" class="btn-secondary">
+      <DownloadIcon /> Download Current Page
+    </button>
+  </div>
+  
+  <!-- Vault Toggle -->
+  <div id="vaultToggleCard" class="vault-card">
+    <div class="vault-icon">🔒</div>
+    <div class="vault-info">
+      <h4>Vault Download Mode</h4>
+      <p>Intercept all downloads to vault</p>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="vaultDownloadToggle" />
+      <span class="slider"></span>
+    </label>
+  </div>
+  
+  <!-- Enabled Sites List -->
+  <div class="sites-list" id="sitesList">
+    <!-- Dynamically populated -->
+  </div>
+</div>
+```
+
+## Storage Schema
+
+Extension data is stored in Chrome's local storage:
+
+```typescript
+interface ExtensionStorage {
+  ownstash_enabled_sites: EnabledSite[];
+  ownstash_settings: Settings;
+  ownstash_vault_download_enabled: boolean;
+}
+
+interface EnabledSite {
+  domain: string;
+  addedAt: number;
+  faviconUrl?: string;
+}
+
+interface Settings {
+  showFloatingButton: boolean;
+  buttonPosition: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+  autoDetectMedia: boolean;
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Selective Site Enabling">
+    Only enable sites you actively download from to reduce clutter:
+    
+    ```javascript
+    // Check if site has downloadable content
+    const hasMediaContent = () => {
+      return document.querySelector('video, audio') !== null ||
+             window.location.hostname.includes('youtube') ||
+             window.location.hostname.includes('soundcloud');
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Vault Mode Safety">
+    **Only enable vault mode when:**
+    - You're downloading sensitive files
+    - You want automatic encryption
+    - You trust the download source
+    
+    **Remember to disable after use** to avoid accidentally encrypting regular downloads.
+  </Accordion>
+  
+  <Accordion title="Check App Status">
+    Verify the app is running before downloads:
+    
+    ```javascript
+    const isAppRunning = async () => {
+      try {
+        const response = await fetch(`${EXTENSION_SERVER_URL}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(2000)
+        });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Extension Can't Connect to App
+
+**Error:** `App not running or connection failed`
+
+**Solutions:**
+1. Make sure Ownstash app is running
+2. Check firewall isn't blocking port 47152
+3. Try restarting the app
+4. Check extension server logs in app
+
+### Downloads Not Intercepted (Vault Mode)
+
+1. **Check vault mode is enabled** - Badge should show 🔒
+2. **Verify app is unlocked** - Vault must be unlocked first
+3. **Some downloads can't be intercepted** - Direct file:// URLs
+
+### Deep Link Not Working
+
+1. **Reinstall app** to re-register protocol handler
+2. **Check OS permissions** for URL protocol handlers
+3. **Try manual launch** instead of deep link
+
+## Manifest V3
+
+The extension uses Manifest V3 for Chrome compatibility:
+
+```json
+{
+  "manifest_version": 3,
+  "name": "Ownstash Downloader",
+  "version": "1.0.0",
+  "description": "Download media from 1000+ sites with one click",
+  
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "notifications",
+    "downloads",
+    "tabs",
+    "activeTab"
+  ],
+  
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="System Integration" icon="window" href="/features/system-integration">
+    Taskbar progress and notifications
+  </Card>
+  <Card title="Downloads" icon="download" href="/features/downloads">
+    Learn about download engines
+  </Card>
+</CardGroup>

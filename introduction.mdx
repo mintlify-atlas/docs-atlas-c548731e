@@ -1,0 +1,278 @@
+---
+title: Introduction
+description: 'Desktop-first media downloader powered by yt-dlp and SpotDL with encrypted vault storage'
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.png"
+  alt="Ownstash Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.png"
+  alt="Ownstash Hero Dark"
+/>
+
+## What is Ownstash Downloader?
+
+Ownstash Downloader is a **desktop-first media downloader** built with Tauri (Rust backend + React frontend) that focuses on fast local downloads with built-in engine management for `yt-dlp` and `SpotDL`. Download media from 1000+ platforms including YouTube, Spotify, Instagram, Twitter, TikTok, and more—all stored securely on your local machine.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get from download to your first successful media download in minutes
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Complete installation guide for Windows with system requirements
+  </Card>
+  <Card
+    title="Browser Extension"
+    icon="puzzle-piece"
+    href="/features/browser-extension"
+  >
+    One-click downloads from any website with our Chrome extension
+  </Card>
+  <Card
+    title="Encrypted Vault"
+    icon="lock"
+    href="/features/vault"
+  >
+    Secure your downloads with PIN-protected AES-256-GCM encryption
+  </Card>
+</CardGroup>
+
+## Core Features
+
+<AccordionGroup>
+  <Accordion title="1000+ Platform Support via yt-dlp" icon="globe">
+    Download from virtually any video or audio platform on the internet:
+    
+    - **Video Platforms**: YouTube, Vimeo, Dailymotion, Twitch, TikTok
+    - **Social Media**: Twitter/X, Instagram, Facebook
+    - **Audio Platforms**: SoundCloud, Mixcloud, Bandcamp
+    - **File Hosting**: Google Drive, OneDrive, Dropbox, Mega, MediaFire
+    - And 1000+ more platforms supported by yt-dlp
+    
+    <Note>
+      The app automatically manages yt-dlp updates to ensure compatibility with the latest platform changes.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Spotify Downloads via SpotDL" icon="spotify">
+    Download music from Spotify using SpotDL's intelligent matching system:
+    
+    - Downloads tracks, albums, playlists, and podcasts
+    - Searches YouTube for the best audio match
+    - Embeds metadata and album artwork automatically
+    - Supports lyrics embedding
+    - Handles large playlists with progress tracking
+    
+    <CodeGroup>
+    ```typescript Example: Spotify Download Detection
+    // From HomePage.tsx:214-237
+    if (isSpotifyLink) {
+        setIsLoading(true);
+        setError(null);
+
+        toast.info('🎵 Fetching Spotify info... This may take a moment as we search for the best audio match.', {
+            duration: 5000,
+        });
+
+        try {
+            const info = await api.getSpotifyInfo(targetUrl);
+            await api.addSearch(targetUrl, info.title, info.thumbnail);
+            setSpotifyMediaInfo(info);
+            setShowSpotifyModal(true);
+            toast.success(`Found: ${info.title}`);
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : 'Failed to fetch Spotify info';
+            setError(errorMsg);
+            toast.error(errorMsg);
+        } finally {
+            setIsLoading(false);
+        }
+    }
+    ```
+    </CodeGroup>
+  </Accordion>
+
+  <Accordion title="PIN-Protected Encrypted Vault" icon="shield-halved">
+    Store sensitive downloads in an encrypted vault with military-grade security:
+    
+    - **AES-256-GCM encryption** for file protection
+    - **Argon2 password hashing** for PIN security
+    - Support for individual files and entire folders
+    - Automatic compression for folder uploads
+    - `.slasshy` encrypted file extension
+    
+    <CodeGroup>
+    ```rust Vault Encryption Implementation
+    // From vault.rs:1-27
+    // Vault module for PIN-protected encrypted storage
+    // Uses AES-256-GCM for file encryption and Argon2 for PIN hashing
+    // Supports both single files and folder uploads (compressed to ZIP then encrypted)
+
+    use aes_gcm::{
+        aead::{Aead, KeyInit, OsRng},
+        Aes256Gcm, Nonce,
+    };
+    use argon2::{
+        password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+        Argon2,
+    };
+
+    const VAULT_DIR_NAME: &str = "vault";
+    const VAULT_CONFIG_FILE: &str = "vault_config.json";
+    pub const ENCRYPTED_EXTENSION: &str = ".slasshy";
+    const LEGACY_EXTENSION: &str = ".vault"; // For backward compatibility
+    const NONCE_SIZE: usize = 12;
+    const KEY_SIZE: usize = 32;
+    ```
+    </CodeGroup>
+    
+    <Warning>
+      If you forget your vault PIN, there is no recovery method. Make sure to remember your PIN or store it securely.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Download Queue & History" icon="list-check">
+    Comprehensive download management with real-time progress tracking:
+    
+    - Real-time progress updates with speed and ETA
+    - Download history with thumbnails and metadata
+    - Cancel, retry, or delete downloads
+    - Open download folder or play media in-app
+    - Track downloads by platform and status
+    
+    <CodeGroup>
+    ```typescript Real-time Progress Updates
+    // From DownloadsPage.tsx:282-306
+    // Set up yt-dlp progress listener
+    api.onDownloadProgress((progress) => {
+        setProgressMap(prev => {
+            const newMap = new Map(prev);
+            const previousProgress = prev.get(progress.id);
+            const stabilized = stabilizeProgressEvent(progress, previousProgress);
+            newMap.set(progress.id, stabilized);
+            return newMap;
+        });
+
+        // Update download status in database if completed or failed
+        if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'cancelled') {
+            api.updateDownloadStatus(progress.id, progress.status);
+            // Refresh downloads list
+            setTimeout(loadDownloads, 500);
+        }
+    }).then(fn => {
+        unlistenYtdlp = fn;
+    }).catch(err => {
+        console.error('[DownloadsPage] Failed to set up yt-dlp progress listener:', err);
+    });
+    ```
+    </CodeGroup>
+  </Accordion>
+
+  <Accordion title="Browser Extension Integration" icon="chrome">
+    Seamless one-click downloads from your browser:
+    
+    - Add any website to enable download functionality
+    - Floating download button on enabled sites
+    - Right-click context menu integration
+    - Direct vault download mode for all browser downloads
+    - Deep link protocol (`ownstash://`) communication
+    
+    <Note>
+      The extension uses Chrome's `storage.local` API for settings and the `ownstash://` deep link protocol to communicate with the desktop app.
+    </Note>
+  </Accordion>
+
+  <Accordion title="System Integration" icon="computer">
+    Native desktop features for seamless workflow:
+    
+    - **System tray integration** - Minimize to tray and quick access
+    - **Taskbar progress** - See download progress on your taskbar
+    - **Native notifications** - Get notified when downloads complete
+    - **Auto-start on boot** - Launch automatically when Windows starts
+    - **In-app updater** - Automatic app updates with signed releases
+  </Accordion>
+</AccordionGroup>
+
+## Tech Stack
+
+<CardGroup cols={2}>
+  <Card title="Backend" icon="gear">
+    - **Tauri 2** - Cross-platform desktop framework
+    - **Rust** - High-performance backend
+    - **SQLite** - Local database for history
+  </Card>
+  <Card title="Frontend" icon="paintbrush">
+    - **React 19** - Modern UI framework
+    - **TypeScript** - Type-safe development
+    - **TailwindCSS** - Utility-first styling
+    - **Framer Motion** - Smooth animations
+  </Card>
+  <Card title="Download Engines" icon="download">
+    - **yt-dlp** - Universal media downloader
+    - **SpotDL** - Spotify to YouTube downloader
+    - **FFmpeg** - Media processing
+    - **FFprobe** - Media information extraction
+  </Card>
+  <Card title="Security" icon="lock">
+    - **AES-256-GCM** - File encryption
+    - **Argon2** - Password hashing
+    - **Code signing** - Verified app updates
+  </Card>
+</CardGroup>
+
+## Platform Detection
+
+The app automatically detects the platform from URLs to provide optimized download experiences:
+
+```typescript Platform Detection System
+// From HomePage.tsx:32-44
+const platformPatterns = [
+    { pattern: /youtube\.com|youtu\.be/i, name: 'YouTube', icon: Youtube, color: 'from-white/80 to-white/60' },
+    { pattern: /spotify\.com/i, name: 'Spotify', icon: Music, color: 'from-white/80 to-white/60' },
+    { pattern: /vimeo\.com/i, name: 'Vimeo', icon: Video, color: 'from-blue-400 to-blue-500' },
+    { pattern: /soundcloud\.com/i, name: 'SoundCloud', icon: Music, color: 'from-orange-500 to-orange-600' },
+    { pattern: /instagram\.com/i, name: 'Instagram', icon: Instagram, color: 'from-pink-500 to-rose-600' },
+    { pattern: /twitter\.com|x\.com/i, name: 'Twitter', icon: Twitter, color: 'from-blue-400 to-blue-500' },
+    { pattern: /tiktok\.com/i, name: 'TikTok', icon: Video, color: 'from-black to-gray-800' },
+    { pattern: /twitch\.tv/i, name: 'Twitch', icon: Video, color: 'from-violet-500 to-violet-700' },
+    { pattern: /facebook\.com|fb\.watch/i, name: 'Facebook', icon: Video, color: 'from-blue-600 to-blue-700' },
+    { pattern: /dailymotion\.com/i, name: 'Dailymotion', icon: Video, color: 'from-blue-500 to-blue-600' },
+];
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Install the App"
+    icon="download"
+    href="/installation"
+  >
+    Download and install Ownstash Downloader on Windows
+  </Card>
+  <Card
+    title="Quick Start Guide"
+    icon="play"
+    href="/quickstart"
+  >
+    Learn how to download your first video or song
+  </Card>
+</CardGroup>
+
+## Legal Notice
+
+<Warning>
+  Use Ownstash Downloader only for content you have rights to download. You are responsible for complying with platform terms of service and local laws. The developers are not responsible for misuse of this software.
+</Warning>

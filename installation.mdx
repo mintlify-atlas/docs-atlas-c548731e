@@ -1,0 +1,552 @@
+---
+title: Installation
+description: 'Complete installation guide for Windows with system requirements and troubleshooting'
+---
+
+## System Requirements
+
+Before installing Ownstash Downloader, ensure your system meets these requirements:
+
+<CardGroup cols={2}>
+  <Card title="Operating System" icon="windows">
+    - **Windows 10** (64-bit) or newer
+    - **Windows 11** (64-bit) recommended
+    
+    <Note>
+      macOS and Linux versions are not currently available.
+    </Note>
+  </Card>
+  
+  <Card title="Hardware" icon="microchip">
+    - **Processor**: Dual-core CPU (2 GHz or faster)
+    - **RAM**: 4 GB minimum, 8 GB recommended
+    - **Storage**: 500 MB for app + space for downloads
+  </Card>
+  
+  <Card title="Software" icon="download">
+    - **Microsoft WebView2** (auto-installed if missing)
+    - **Internet connection** for downloads
+    - **.NET Framework 4.7.2** or newer (usually pre-installed)
+  </Card>
+  
+  <Card title="Permissions" icon="shield">
+    - **Administrator rights** for initial installation
+    - **Firewall exception** may be required
+    - **Antivirus whitelist** (if false positives occur)
+  </Card>
+</CardGroup>
+
+## Download the Installer
+
+<Tabs>
+  <Tab title="Recommended: Stable Release">
+    Download the latest stable Windows installer:
+    
+    ```bash Latest Release URL (Always Up-to-Date)
+    https://github.com/SlasshyOverhere/Ownstash-Downloader/releases/latest/download/ownstash-downloader-windows-x64-setup.exe
+    ```
+    
+    <Steps>
+      <Step title="Download Installer">
+        Click the link above or visit the [latest release page](https://github.com/SlasshyOverhere/Ownstash-Downloader/releases/latest) and download the `.exe` installer.
+        
+        **File size**: ~150 MB (includes bundled engines)
+      </Step>
+      
+      <Step title="Verify Download">
+        The installer is **code-signed** with a certificate. Windows will show:
+        
+        ```
+        Publisher: Ownstash
+        Verified publisher
+        ```
+        
+        <Note>
+          If Windows shows "Unknown publisher" or SmartScreen warning, the signature may still be pending validation. This is safe to ignore for official releases.
+        </Note>
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Browse All Versions">
+    Visit the [releases page](https://github.com/SlasshyOverhere/Ownstash-Downloader/releases) to:
+    
+    - Download specific versions
+    - View release notes and changelogs
+    - Access beta/pre-release versions
+    - Compare features across versions
+    
+    <Warning>
+      Pre-release versions (tagged with `-beta`, `-alpha`, etc.) may contain bugs. Use stable releases for production.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Run the Installer">
+    Double-click the downloaded `.exe` file to launch the installer.
+    
+    <Accordion title="Windows SmartScreen Warning">
+      If Windows SmartScreen blocks the installer:
+      
+      1. Click **More info**
+      2. Click **Run anyway**
+      3. Confirm in the UAC prompt (admin rights required)
+      
+      This warning appears because the app is new or unsigned builds. Official releases are safe.
+    </Accordion>
+  </Step>
+  
+  <Step title="Choose Installation Location">
+    The installer will prompt you to select an installation directory:
+    
+    **Default location**:
+    ```
+    C:\Program Files\Ownstash Downloader\
+    ```
+    
+    <Note>
+      Installing to a custom location is supported, but ensure:
+      - You have write permissions
+      - The path doesn't contain special characters
+      - There's at least 500 MB free space
+    </Note>
+  </Step>
+  
+  <Step title="Install Bundled Dependencies">
+    The installer automatically includes:
+    
+    <CodeGroup>
+    ```json Bundled Resources
+    // From tauri.conf.json:46-51
+    "resources": [
+        "binaries/yt-dlp.exe",
+        "binaries/spotdl.exe",
+        "binaries/ffmpeg.exe",
+        "binaries/ffprobe.exe"
+    ]
+    ```
+    </CodeGroup>
+    
+    These are extracted to:
+    ```
+    %APPDATA%\com.ownstash.downloader\binaries\
+    ```
+    
+    <Tabs>
+      <Tab title="yt-dlp">
+        **Universal media downloader** supporting 1000+ platforms.
+        
+        - Version: Auto-updated
+        - Size: ~10 MB
+        - Purpose: Extract and download media from websites
+      </Tab>
+      
+      <Tab title="SpotDL">
+        **Spotify to YouTube downloader** with metadata support.
+        
+        - Version: Auto-updated
+        - Size: ~20 MB
+        - Purpose: Download Spotify tracks/playlists
+      </Tab>
+      
+      <Tab title="FFmpeg">
+        **Media processing toolkit** for format conversion and merging.
+        
+        - Version: Bundled
+        - Size: ~70 MB
+        - Purpose: Merge video/audio streams, embed metadata
+      </Tab>
+      
+      <Tab title="FFprobe">
+        **Media information extractor** for file analysis.
+        
+        - Version: Bundled
+        - Size: ~5 MB
+        - Purpose: Extract media metadata and stream info
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Register Deep Link Protocol">
+    The installer registers the `ownstash://` URL protocol for browser extension integration.
+    
+    <CodeGroup>
+    ```json Deep Link Configuration
+    // From tauri.conf.json:71-78
+    "deep-link": {
+        "mobile": [],
+        "desktop": {
+            "schemes": [
+                "ownstash"
+            ]
+        }
+    }
+    ```
+    </CodeGroup>
+    
+    This allows the browser extension to send URLs to the desktop app:
+    ```
+    ownstash://download?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ
+    ```
+    
+    <Note>
+      The protocol is registered system-wide. Other apps can also trigger Ownstash using this protocol.
+    </Note>
+  </Step>
+  
+  <Step title="Create Desktop Shortcut">
+    The installer offers to create shortcuts:
+    
+    - **Desktop shortcut**: Quick access from desktop
+    - **Start Menu entry**: Find in Windows Start Menu
+    - **Auto-start entry** (optional): Launch on Windows startup
+    
+    <Tip>
+      Enable auto-start in Settings later if you skip it during installation.
+    </Tip>
+  </Step>
+  
+  <Step title="Complete Installation">
+    Click **Finish** to complete the installation. The app will:
+    
+    1. Initialize the local database (SQLite)
+    2. Create the default download folder
+    3. Configure auto-updater settings
+    4. Launch the app (if selected)
+    
+    <CodeGroup>
+    ```json App Configuration
+    // From tauri.conf.json:1-11
+    {
+        "productName": "Ownstash Downloader",
+        "version": "1.0.7",
+        "identifier": "com.ownstash.downloader",
+        "build": {
+            "beforeDevCommand": "npm run dev",
+            "devUrl": "http://localhost:1420",
+            "beforeBuildCommand": "npm run build",
+            "frontendDist": "../dist"
+        }
+    }
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## First Launch
+
+When you launch Ownstash Downloader for the first time:
+
+<Steps>
+  <Step title="Initial Setup">
+    The app performs one-time initialization:
+    
+    - Creates app data directory at `%APPDATA%\com.ownstash.downloader\`
+    - Initializes SQLite database for history
+    - Sets default download path to `Downloads\Ownstash`
+    - Checks for engine updates
+  </Step>
+  
+  <Step title="Welcome Screen">
+    You'll see the main interface with:
+    
+    - **URL input field** ready for your first download
+    - **Quick stats** showing 0 downloads initially
+    - **Sidebar navigation** with Home, Downloads, History, Vault, Settings
+    
+    <Note>
+      No account or login is required. The app is fully functional offline (after engines are installed).
+    </Note>
+  </Step>
+  
+  <Step title="Engine Verification">
+    The app automatically verifies installed engines:
+    
+    <CodeGroup>
+    ```typescript Engine Version Check
+    // From SettingsPage.tsx:135-141
+    useEffect(() => {
+        loadSettings();
+        checkYtDlp();
+        checkSpotDl();
+        loadPlatforms();
+        loadAppVersion();
+    }, []);
+    ```
+    </CodeGroup>
+    
+    You can view engine status in **Settings** > **Download Engines**:
+    - Current version
+    - Latest available version
+    - Update button if newer version exists
+  </Step>
+</Steps>
+
+## Post-Installation Configuration
+
+<AccordionGroup>
+  <Accordion title="Set Download Location" icon="folder">
+    1. Go to **Settings** (gear icon in sidebar)
+    2. Under **General Settings**, click **Change** next to Download Path
+    3. Select your preferred folder
+    4. Click **Select Folder**
+    
+    The path is saved immediately and applies to all future downloads.
+    
+    <Tip>
+      Choose a location with plenty of free space. Video downloads can be large (1-5 GB for HD content).
+    </Tip>
+  </Accordion>
+  
+  <Accordion title="Configure Default Quality" icon="video">
+    Set default quality preferences to avoid configuring every download:
+    
+    **Video Quality**:
+    - Best (highest available)
+    - 2160p (4K)
+    - 1440p (2K)
+    - 1080p (Full HD)
+    - 720p (HD)
+    
+    **Audio Quality**:
+    - 320kbps (highest)
+    - 256kbps
+    - 192kbps
+    - 128kbps
+    
+    These become the default selections in the download modal.
+  </Accordion>
+  
+  <Accordion title="Enable System Tray" icon="window-minimize">
+    To run downloads in the background:
+    
+    1. Go to **Settings** > **General Settings**
+    2. Enable **Minimize to Tray**
+    3. Enable **Auto-start on Boot** (optional)
+    
+    With tray mode enabled:
+    - App minimizes to system tray instead of taskbar
+    - Right-click tray icon for quick actions
+    - Downloads continue even when minimized
+  </Accordion>
+  
+  <Accordion title="Update Engines" icon="refresh">
+    Keep yt-dlp and SpotDL updated for best compatibility:
+    
+    1. Go to **Settings** > **Download Engines**
+    2. Click **Check for Updates**
+    3. If updates are available, click **Update Now**
+    4. Wait for the update to complete
+    
+    <Note>
+      Engine updates are separate from app updates. yt-dlp updates frequently (weekly) to maintain platform support.
+    </Note>
+  </Accordion>
+  
+  <Accordion title="Install Browser Extension" icon="chrome">
+    For one-click downloads from your browser:
+    
+    1. Navigate to the extension folder in your installation:
+       ```
+       C:\Program Files\Ownstash Downloader\chrome-extension\
+       ```
+    
+    2. Open Chrome and go to `chrome://extensions/`
+    3. Enable **Developer mode** (toggle in top-right)
+    4. Click **Load unpacked**
+    5. Select the `chrome-extension` folder
+    
+    See [Browser Extension Guide](/features/browser-extension) for detailed setup.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting Installation Issues
+
+<AccordionGroup>
+  <Accordion title="Installer won't run" icon="exclamation-triangle">
+    **Symptom**: Double-clicking the installer does nothing, or shows an error.
+    
+    **Causes & Solutions**:
+    
+    1. **Antivirus blocking**:
+       - Add an exception for the installer
+       - Temporarily disable antivirus
+       - Download from official GitHub releases only
+    
+    2. **Corrupted download**:
+       - Re-download the installer
+       - Verify file size matches the release page
+       - Clear browser cache and retry
+    
+    3. **Insufficient permissions**:
+       - Right-click installer → **Run as administrator**
+       - Ensure you're logged in with an admin account
+  </Accordion>
+  
+  <Accordion title="Missing dependencies error" icon="puzzle-piece">
+    **Symptom**: "Failed to find yt-dlp.exe" or similar errors after installation.
+    
+    **Solution**:
+    
+    1. Close the app completely
+    2. Navigate to app data:
+       ```
+       %APPDATA%\com.ownstash.downloader\binaries\
+       ```
+    3. If the folder is empty, re-run the installer
+    4. If files exist but app doesn't detect them, check antivirus quarantine
+    
+    <Warning>
+      Some antivirus software flags `yt-dlp.exe` as suspicious. Add it to your whitelist.
+    </Warning>
+  </Accordion>
+  
+  <Accordion title="App crashes on startup" icon="bug">
+    **Symptom**: App opens briefly then closes, or shows a white screen.
+    
+    **Solutions**:
+    
+    1. **WebView2 issue**:
+       - Download and install [Microsoft Edge WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
+       - Restart your computer
+       - Launch Ownstash again
+    
+    2. **Corrupted app data**:
+       - Close the app
+       - Delete: `%APPDATA%\com.ownstash.downloader\`
+       - Restart the app (it will reinitialize)
+    
+    3. **Graphics driver issue**:
+       - Update your graphics drivers
+       - Try running in compatibility mode (Windows 10)
+  </Accordion>
+  
+  <Accordion title="Updater not working" icon="refresh">
+    **Symptom**: "Check for Updates" does nothing, or shows an error.
+    
+    **Cause**: Firewall or network blocking GitHub API.
+    
+    **Solution**:
+    
+    1. Check your internet connection
+    2. Allow Ownstash through Windows Firewall:
+       - Settings → Update & Security → Windows Security
+       - Firewall & network protection → Allow an app through firewall
+       - Add `Ownstash Downloader.exe`
+    
+    3. Manual update:
+       - Download latest installer from GitHub
+       - Run it to upgrade in-place
+    
+    <CodeGroup>
+    ```json Updater Configuration
+    // From tauri.conf.json:65-70
+    "updater": {
+        "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU0NzZBMTkzNzYzQzlCQTQKUldTa216eDJrNkYyVkFqdGMzVGZLd0NtdXRRVG53ZXpVREx4ZkJOT0ROMXo2Ly9maGF0cUpMWmUK",
+        "endpoints": [
+            "https://github.com/SlasshyOverhere/Ownstash-Downloader/releases/latest/download/latest.json"
+        ]
+    }
+    ```
+    </CodeGroup>
+  </Accordion>
+  
+  <Accordion title="Deep link not working" icon="link">
+    **Symptom**: Browser extension shows "Failed to open app" when clicking Send to App.
+    
+    **Solution**:
+    
+    1. Verify protocol registration:
+       - Press **Win + R**
+       - Type: `ownstash://open`
+       - Press Enter
+       - Ownstash should open
+    
+    2. If nothing happens:
+       - Run installer again (it re-registers the protocol)
+       - Or manually add registry entry (advanced users)
+    
+    3. Check browser permissions:
+       - Chrome may ask to allow `ownstash://` protocol
+       - Click **Allow** when prompted
+  </Accordion>
+</AccordionGroup>
+
+## Uninstallation
+
+To completely remove Ownstash Downloader:
+
+<Steps>
+  <Step title="Uninstall via Windows Settings">
+    1. Open **Settings** → **Apps** → **Installed apps**
+    2. Find **Ownstash Downloader**
+    3. Click the three dots → **Uninstall**
+    4. Confirm the uninstallation
+  </Step>
+  
+  <Step title="Remove App Data (Optional)">
+    The uninstaller keeps your download history and settings. To delete them:
+    
+    1. Press **Win + R**
+    2. Type: `%APPDATA%`
+    3. Delete the folder: `com.ownstash.downloader`
+    
+    <Warning>
+      This will delete your download history, vault files, and all settings. Downloaded media files are NOT deleted.
+    </Warning>
+  </Step>
+  
+  <Step title="Remove Browser Extension">
+    If you installed the browser extension:
+    
+    1. Go to `chrome://extensions/`
+    2. Find **Ownstash Downloader**
+    3. Click **Remove**
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Learn how to download your first video or song in minutes
+  </Card>
+  <Card
+    title="Browser Extension"
+    icon="chrome"
+    href="/browser-extension"
+  >
+    Set up the Chrome extension for one-click downloads
+  </Card>
+  <Card
+    title="Settings Overview"
+    icon="sliders"
+    href="/settings"
+  >
+    Configure quality presets, auto-updates, and advanced options
+  </Card>
+  <Card
+    title="Encrypted Vault"
+    icon="lock"
+    href="/vault"
+  >
+    Protect sensitive downloads with PIN encryption
+  </Card>
+</CardGroup>
+
+## Support
+
+<Card title="Need Help?" icon="question" href="https://github.com/SlasshyOverhere/Ownstash-Downloader/issues">
+  If you encounter issues not covered here, open an issue on GitHub with:
+  - Windows version
+  - Ownstash version
+  - Error message or screenshot
+  - Steps to reproduce
+</Card>

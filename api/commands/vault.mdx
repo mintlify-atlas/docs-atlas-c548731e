@@ -1,0 +1,500 @@
+---
+title: Vault Commands
+description: Secure PIN-protected encrypted storage using AES-256-GCM
+---
+
+The Vault provides encrypted storage for media files with PIN protection, cloud sync, and folder support.
+
+## vault_setup
+
+Initialize the vault with a PIN.
+
+```typescript
+await invoke('vault_setup', { pin: string })
+```
+
+<ParamField path="pin" type="string" required>
+  PIN code (minimum 4 characters)
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success. Vault is automatically unlocked after setup.
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('vault_setup', { pin: '123456' })
+console.log('Vault created and unlocked')
+```
+
+---
+
+## vault_unlock
+
+Unlock the vault with PIN.
+
+```typescript
+await invoke('vault_unlock', { pin: string })
+```
+
+<ParamField path="pin" type="string" required>
+  PIN code
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success. Throws error if PIN is incorrect.
+</ResponseField>
+
+### Usage Example
+
+```typescript
+try {
+  await invoke('vault_unlock', { pin: '123456' })
+  console.log('Vault unlocked')
+} catch (err) {
+  console.error('Invalid PIN')
+}
+```
+
+---
+
+## vault_lock
+
+Lock the vault (clears encryption key from memory).
+
+```typescript
+await invoke('vault_lock')
+```
+
+<ResponseField name="result" type="void">
+  Always succeeds
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('vault_lock')
+console.log('Vault locked')
+```
+
+---
+
+## vault_add_file
+
+Encrypt and add a file to the vault.
+
+```typescript
+const vaultFile = await invoke<VaultFile>('vault_add_file', {
+  source_path: string,
+  original_name: string,
+  file_type: string,
+  thumbnail?: string,
+  delete_original: boolean
+})
+```
+
+<ParamField path="source_path" type="string" required>
+  Path to file to encrypt
+</ParamField>
+
+<ParamField path="original_name" type="string" required>
+  Original filename
+</ParamField>
+
+<ParamField path="file_type" type="string" required>
+  File type: "video", "audio", "image", "file"
+</ParamField>
+
+<ParamField path="thumbnail" type="string">
+  Thumbnail URL/path (optional)
+</ParamField>
+
+<ParamField path="delete_original" type="boolean" required>
+  Delete source file after encryption
+</ParamField>
+
+<ResponseField name="VaultFile" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Unique file ID (UUID)
+    </ResponseField>
+    
+    <ResponseField name="original_name" type="string">
+      Original filename
+    </ResponseField>
+    
+    <ResponseField name="encrypted_name" type="string">
+      Encrypted filename (UUID.slasshy)
+    </ResponseField>
+    
+    <ResponseField name="size_bytes" type="number">
+      Original file size before encryption
+    </ResponseField>
+    
+    <ResponseField name="added_at" type="number">
+      Unix timestamp (seconds)
+    </ResponseField>
+    
+    <ResponseField name="file_type" type="string">
+      "video", "audio", "image", "file", "folder"
+    </ResponseField>
+    
+    <ResponseField name="thumbnail" type="string | null">
+      Thumbnail URL
+    </ResponseField>
+    
+    <ResponseField name="is_folder" type="boolean">
+      Whether this is an encrypted folder
+    </ResponseField>
+    
+    <ResponseField name="folder_entries" type="VaultFolderEntry[] | null">
+      Contents if this is a folder
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const vaultFile = await invoke<VaultFile>('vault_add_file', {
+  source_path: '/Users/me/video.mp4',
+  original_name: 'video.mp4',
+  file_type: 'video',
+  thumbnail: 'https://example.com/thumb.jpg',
+  delete_original: false
+})
+
+console.log(`Encrypted as: ${vaultFile.encrypted_name}`)
+```
+
+---
+
+## vault_add_folder
+
+Encrypt an entire folder (compresses to ZIP, then encrypts).
+
+```typescript
+const vaultFile = await invoke<VaultFile>('vault_add_folder', {
+  folder_path: string,
+  folder_name: string,
+  delete_original: boolean
+})
+```
+
+<ParamField path="folder_path" type="string" required>
+  Path to folder to encrypt
+</ParamField>
+
+<ParamField path="folder_name" type="string" required>
+  Folder name for display
+</ParamField>
+
+<ParamField path="delete_original" type="boolean" required>
+  Delete source folder after encryption
+</ParamField>
+
+<ResponseField name="VaultFile" type="object">
+  VaultFile with `is_folder: true` and `folder_entries` containing file tree
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const folder = await invoke<VaultFile>('vault_add_folder', {
+  folder_path: '/Users/me/MyPhotos',
+  folder_name: 'Vacation 2024',
+  delete_original: false
+})
+
+console.log(`Encrypted folder with ${folder.folder_entries?.length} entries`)
+```
+
+---
+
+## vault_list_files
+
+List all vault files (cloud-only mode - returns empty array).
+
+```typescript
+const files = await invoke<VaultFile[]>('vault_list_files')
+```
+
+<Info>
+In cloud-only mode, this returns an empty array. File metadata is managed by the frontend via encrypted Google Drive storage. This prevents local file metadata leakage.
+</Info>
+
+<ResponseField name="VaultFile[]" type="array">
+  Always returns empty array in cloud mode
+</ResponseField>
+
+---
+
+## vault_get_temp_playback_path
+
+Decrypt a file to temporary storage for playback.
+
+```typescript
+const tempPath = await invoke<string>('vault_get_temp_playback_path', {
+  file_id: string,
+  encrypted_name: string,
+  original_name: string
+})
+```
+
+<ParamField path="file_id" type="string" required>
+  Vault file ID
+</ParamField>
+
+<ParamField path="encrypted_name" type="string" required>
+  Encrypted filename (from cloud index)
+</ParamField>
+
+<ParamField path="original_name" type="string" required>
+  Original filename (for extension detection)
+</ParamField>
+
+<ResponseField name="tempPath" type="string">
+  Path to decrypted temporary file
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const tempPath = await invoke<string>('vault_get_temp_playback_path', {
+  file_id: 'abc-123',
+  encrypted_name: 'abc-123.slasshy',
+  original_name: 'video.mp4'
+})
+
+// Use tempPath for playback
+videoElement.src = `http://localhost:3001/serve/${encodeURIComponent(tempPath)}`
+```
+
+---
+
+## vault_export_file
+
+Decrypt and export a vault file to a destination.
+
+```typescript
+const exportedPath = await invoke<string>('vault_export_file', {
+  file_id: string,
+  encrypted_name: string,
+  original_name: string,
+  destination_path: string
+})
+```
+
+<ParamField path="file_id" type="string" required>
+  Vault file ID
+</ParamField>
+
+<ParamField path="encrypted_name" type="string" required>
+  Encrypted filename
+</ParamField>
+
+<ParamField path="original_name" type="string" required>
+  Original filename for export
+</ParamField>
+
+<ParamField path="destination_path" type="string" required>
+  Directory to export to
+</ParamField>
+
+<ResponseField name="exportedPath" type="string">
+  Full path to exported file
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const path = await invoke<string>('vault_export_file', {
+  file_id: 'abc-123',
+  encrypted_name: 'abc-123.slasshy',
+  original_name: 'video.mp4',
+  destination_path: '/Users/me/Downloads'
+})
+
+console.log(`Exported to: ${path}`)
+```
+
+---
+
+## vault_delete_file
+
+Delete an encrypted file from vault storage.
+
+```typescript
+await invoke('vault_delete_file', { file_id: string })
+```
+
+<ParamField path="file_id" type="string" required>
+  Vault file ID
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success
+</ResponseField>
+
+### Usage Example
+
+```typescript
+await invoke('vault_delete_file', { file_id: 'abc-123' })
+console.log('File deleted from vault')
+```
+
+---
+
+## vault_get_status
+
+Get vault status information.
+
+```typescript
+const status = await invoke<VaultStatus>('vault_get_status')
+```
+
+<ResponseField name="VaultStatus" type="object">
+  <Expandable title="properties">
+    <ResponseField name="is_setup" type="boolean">
+      Whether vault has been initialized
+    </ResponseField>
+    
+    <ResponseField name="is_unlocked" type="boolean">
+      Whether vault is currently unlocked
+    </ResponseField>
+    
+    <ResponseField name="file_count" type="number">
+      Number of encrypted files on disk
+    </ResponseField>
+    
+    <ResponseField name="total_size_bytes" type="number">
+      Total encrypted storage size
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Example
+
+```typescript
+const status = await invoke<VaultStatus>('vault_get_status')
+
+if (!status.is_setup) {
+  console.log('Vault not initialized')
+} else if (!status.is_unlocked) {
+  console.log('Vault is locked')
+} else {
+  console.log(`${status.file_count} files, ${status.total_size_bytes} bytes`)
+}
+```
+
+---
+
+## vault_change_pin
+
+Change vault PIN (re-encrypts all files with new key).
+
+```typescript
+await invoke('vault_change_pin', {
+  current_pin: string,
+  new_pin: string
+})
+```
+
+<ParamField path="current_pin" type="string" required>
+  Current PIN for verification
+</ParamField>
+
+<ParamField path="new_pin" type="string" required>
+  New PIN (minimum 4 characters)
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success. All files are re-encrypted with new PIN.
+</ResponseField>
+
+<Warning>
+This operation re-encrypts all vault files and can take time for large vaults.
+</Warning>
+
+### Usage Example
+
+```typescript
+await invoke('vault_change_pin', {
+  current_pin: '123456',
+  new_pin: '654321'
+})
+console.log('PIN changed successfully')
+```
+
+---
+
+## vault_reset
+
+Reset vault and delete all encrypted files.
+
+```typescript
+await invoke('vault_reset', { pin: string })
+```
+
+<ParamField path="pin" type="string" required>
+  Current PIN for verification
+</ParamField>
+
+<ResponseField name="result" type="void">
+  Returns on success. All vault data is permanently deleted.
+</ResponseField>
+
+<Warning>
+This is a destructive operation and cannot be undone.
+</Warning>
+
+### Usage Example
+
+```typescript
+await invoke('vault_reset', { pin: '123456' })
+console.log('Vault reset complete')
+```
+
+---
+
+## Cloud Sync Commands
+
+### vault_get_file_base64
+
+Get encrypted file as base64 for cloud upload.
+
+```typescript
+const base64 = await invoke<string>('vault_get_file_base64', {
+  encrypted_name: string
+})
+```
+
+### vault_save_file_base64
+
+Save encrypted file from cloud download.
+
+```typescript
+await invoke('vault_save_file_base64', {
+  encrypted_name: string,
+  base64_content: string
+})
+```
+
+### vault_check_local_file
+
+Check if encrypted file exists locally.
+
+```typescript
+const exists = await invoke<boolean>('vault_check_local_file', {
+  encrypted_name: string
+})
+```
+
+---
+
+## Related
+
+- [Download Commands](/api/commands/downloads) - Media downloads
+- [Settings Commands](/api/commands/settings) - App settings
+- [Events](/api/events) - Vault download events

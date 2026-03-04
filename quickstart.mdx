@@ -1,80 +1,468 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: 'Get from installation to your first successful media download in minutes'
 ---
 
-## Get started in three steps
+## Welcome to Ownstash Downloader
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide will take you from installation to your first successful download in just a few minutes. We'll download a YouTube video and a Spotify track to demonstrate both download engines.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Already have Ownstash installed? Skip to [Step 2: Launch the App](#step-2-launch-the-app)
 </Note>
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Windows 10/11** (64-bit)
+- **500 MB** free disk space (minimum)
+- **Internet connection** for downloading media
+
+<Steps>
+  <Step title="Download and Install">
+    Download the latest Windows installer:
+    
+    ```bash Latest Release (Stable URL)
+    https://github.com/SlasshyOverhere/Ownstash-Downloader/releases/latest/download/ownstash-downloader-windows-x64-setup.exe
+    ```
+    
+    <Accordion title="Alternative Download Methods">
+      - **Latest release page**: [View on GitHub](https://github.com/SlasshyOverhere/Ownstash-Downloader/releases/latest)
+      - **All releases**: [Browse versions](https://github.com/SlasshyOverhere/Ownstash-Downloader/releases)
+    </Accordion>
+    
+    Run the installer and follow the installation wizard. The app will automatically:
+    - Install required download engines (yt-dlp, SpotDL)
+    - Set up FFmpeg for media processing
+    - Register the `ownstash://` deep link protocol
+    - Create a desktop shortcut
+    
+    <Note>
+      The installer is signed and will register the app for automatic updates.
+    </Note>
+  </Step>
+
+  <Step title="Launch the App">
+    Open Ownstash Downloader from your desktop shortcut or Start menu. You'll see the main interface with:
+    
+    - **URL input field** at the top
+    - **Quick stats** showing downloads, storage, and platforms
+    - **Sidebar navigation** on the left
+    
+    The app opens with the **Home** tab selected by default.
+  </Step>
+
+  <Step title="Set Download Location">
+    Before your first download, set your preferred download folder:
+    
+    1. Click **Settings** in the sidebar
+    2. Under **General Settings**, click **Change** next to Download Path
+    3. Select your desired folder (default: `Downloads/Ownstash`)
+    4. The path is saved automatically
+    
+    <CodeGroup>
+    ```typescript Settings Load Implementation
+    // From SettingsPage.tsx:143-150
+    const loadSettings = async () => {
+        try {
+            // Load download path
+            const savedPath = await api.getSetting('download_path');
+            if (savedPath) {
+                setDownloadPath(savedPath);
+            } else {
+                // Use default path
+                const defaultPath = await api.getDefaultDownloadPath();
+                setDownloadPath(defaultPath);
+            }
+        }
+    }
+    ```
+    </CodeGroup>
+    
+    <Note>
+      Your download path is displayed at the bottom of the Settings page.
+    </Note>
+  </Step>
+
+  <Step title="Download a YouTube Video">
+    Let's download your first video from YouTube:
+    
+    ### Copy a YouTube URL
+    
+    For this example, use any YouTube video URL, such as:
+    ```
+    https://www.youtube.com/watch?v=dQw4w9WgXcQ
+    ```
+    
+    ### Paste and Fetch
+    
+    1. Return to the **Home** tab
+    2. Paste the URL into the input field
+    3. Notice the **YouTube icon** appears (platform auto-detected)
+    4. Click the **Fetch** button
+    
+    <CodeGroup>
+    ```typescript Platform Detection
+    // From HomePage.tsx:46-53
+    function detectPlatform(url: string) {
+        for (const platform of platformPatterns) {
+            if (platform.pattern.test(url)) {
+                return platform;
+            }
+        }
+        return null;
+    }
+    ```
+    </CodeGroup>
+    
+    The app will:
+    - Extract video metadata
+    - Load thumbnail and title
+    - Display available formats
+    - Show estimated file size
+    
+    ### Configure Download Options
+    
+    A modal appears with download options:
+    
+    <Tabs>
+      <Tab title="Video Download">
+        - **Quality**: Select from 2160p, 1440p, 1080p, 720p, 480p, 360p, or Best
+        - **Video Format**: MP4 (default), WebM, MKV
+        - **Embed Thumbnail**: Add video thumbnail to file metadata
+        - **Embed Metadata**: Include title, artist, and description
+        - **Download Subtitles**: Include available subtitle tracks
+      </Tab>
+      <Tab title="Audio Only">
+        - Toggle **Audio Only** switch
+        - **Audio Format**: MP3 (default), M4A, OPUS, FLAC
+        - **Audio Quality**: 320kbps (best), 256kbps, 192kbps, 128kbps
+        - **Embed Thumbnail**: Add album art to audio file
+        - **Embed Metadata**: Include song information
+      </Tab>
+    </Tabs>
+    
+    ### Start Download
+    
+    1. Configure your preferred options
+    2. Click **Download**
+    3. The app automatically navigates to the **Downloads** tab
+    
+    <CodeGroup>
+    ```typescript Download Handler
+    // From HomePage.tsx:356-421
+    const handleDownload = async (options: DownloadOptions) => {
+        if (!mediaInfo) return;
+
+        setIsDownloading(true);
+
+        try {
+            const downloadId = generateDownloadId();
+
+            // Create download record in database
+            const download: DownloadType = {
+                id: downloadId,
+                title: mediaInfo.title,
+                url: url,
+                format: options.audioOnly ? 'mp3' : options.quality,
+                path: downloadPath,
+                timestamp: Date.now(),
+                status: 'downloading',
+                platform: mediaInfo.platform,
+                thumbnail: mediaInfo.thumbnail,
+            };
+
+            await api.addDownload(download);
+
+            // Start the actual download
+            const request: DownloadRequest = {
+                id: downloadId,
+                url: url,
+                output_path: downloadPath,
+                format: options.format,
+                audio_only: options.audioOnly,
+                quality: options.quality,
+                embed_thumbnail: options.embedThumbnail,
+                embed_metadata: options.embedMetadata,
+                download_subtitles: options.downloadSubtitles,
+                audio_quality: options.audioQuality,
+                audio_format: options.audioFormat,
+                video_format: options.videoFormat,
+                use_sponsorblock: options.useSponsorblock,
+            };
+
+            // Fire and forget - download runs in background
+            api.startDownload(request).catch(err => {
+                console.error('[HomePage] Download error:', err);
+                api.updateDownloadStatus(downloadId, 'failed').catch(() => { });
+            });
+
+            // Immediately close modal and navigate
+            setShowModal(false);
+            setUrl('');
+            setMediaInfo(null);
+            toast.success('Download started!');
+            loadStats();
+
+            // Navigate to downloads tab immediately
+            if (onNavigateToDownloads) {
+                onNavigateToDownloads();
+            }
+        }
+    };
+    ```
+    </CodeGroup>
+    
+    You'll see real-time progress with:
+    - **Progress bar** showing percentage complete
+    - **Download speed** in MB/s
+    - **ETA** (estimated time remaining)
+    - **Engine badge** showing which download engine is active
+    
+    <Note>
+      Downloads run in the background. You can close the app and they'll continue via the system tray.
+    </Note>
+  </Step>
+
+  <Step title="Download from Spotify">
+    Now let's download a track from Spotify using SpotDL:
+    
+    ### Copy a Spotify URL
+    
+    Open Spotify and copy any track, album, or playlist URL:
+    ```
+    https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT
+    ```
+    
+    ### Paste and Fetch
+    
+    1. Paste the Spotify URL into the input field
+    2. Notice the **Spotify icon** and info banner appear
+    3. Click **Fetch Spotify**
+    
+    <Warning>
+      Spotify downloads take longer to fetch because SpotDL searches YouTube for the best audio match. This may take 10-30 seconds for a single track, or several minutes for large playlists.
+    </Warning>
+    
+    <CodeGroup>
+    ```typescript Spotify Detection & Fetch
+    // From HomePage.tsx:284-310
+    if (isSpotify) {
+        setIsLoading(true);
+        setError(null);
+
+        // Show info toast for Spotify - it takes longer because it needs to search YouTube
+        toast.info('🎵 Fetching Spotify info... This may take a moment as we search for the best audio match.', {
+            duration: 5000,
+        });
+
+        try {
+            // Fetch Spotify media info
+            const info = await api.getSpotifyInfo(url);
+
+            // Add to search history
+            await api.addSearch(url, info.title, info.thumbnail);
+
+            setSpotifyMediaInfo(info);
+            setShowSpotifyModal(true);
+            toast.success(`Found: ${info.title}`);
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : 'Failed to fetch Spotify info';
+            setError(errorMsg);
+            toast.error(errorMsg);
+        } finally {
+            setIsLoading(false);
+        }
+    }
+    ```
+    </CodeGroup>
+    
+    ### Configure Spotify Options
+    
+    The Spotify download modal offers:
+    
+    - **Audio Format**: MP3, M4A, OPUS, FLAC
+    - **Audio Quality**: 320kbps (best), 256kbps, 192kbps, 128kbps
+    - **Embed Lyrics**: Include synchronized lyrics (if available)
+    - **Metadata**: Automatically embedded (artist, album, year, etc.)
+    
+    ### Start Spotify Download
+    
+    1. Configure your options
+    2. Click **Download**
+    3. SpotDL will search YouTube for the best match
+    4. Track progress in the Downloads tab
+    
+    <Note>
+      SpotDL matches Spotify tracks by searching YouTube for "Artist - Song Name" and selecting the best result. Quality is typically 128-256kbps AAC from YouTube.
+    </Note>
+  </Step>
+
+  <Step title="Monitor & Manage Downloads">
+    In the **Downloads** tab, you can:
+    
+    ### Active Downloads
+    
+    - View real-time progress with speed and ETA
+    - See which engine is processing (yt-dlp or SpotDL)
+    - Cancel downloads with the **X** button
+    
+    <CodeGroup>
+    ```typescript Progress Updates
+    // From DownloadsPage.tsx:169-207
+    {isActive && (
+        <div className="mt-3">
+            <div className="flex items-center justify-between text-xs mb-1">
+                <div className="flex items-center gap-2">
+                    <span className={cn('capitalize flex items-center gap-1', statusColors[item.status])}>
+                        {item.status === 'downloading' && (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                        )}
+                        {item.status}
+                    </span>
+                    {/* Engine Badge */}
+                    {item.engine_badge && (
+                        <span className={cn(
+                            'px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide',
+                            item.engine_badge.includes('ACCELERATED') && 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30',
+                            item.engine_badge.includes('SAFE') && 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+                            item.engine_badge.includes('MEDIA') && 'bg-violet-500/20 text-violet-400 border border-violet-500/30'
+                        )}>
+                            {item.engine_badge}
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-3 text-muted-foreground">
+                    {item.speed && <span>{item.speed}</span>}
+                    {item.eta && <span>ETA: {item.eta}</span>}
+                    <span>{progress.toFixed(1)}%</span>
+                </div>
+            </div>
+            <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
+                <motion.div
+                    className="h-full bg-gradient-to-r from-primary to-accent rounded-full progress-shimmer"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
+                />
+            </div>
+        </div>
+    )}
+    ```
+    </CodeGroup>
+    
+    ### Completed Downloads
+    
+    Once downloads finish, you can:
+    - **Open Folder** - Navigate to the file location
+    - **Play** - Preview audio/video in the built-in player
+    - **Delete** - Remove from history (keeps file)
+    
+    ### Failed Downloads
+    
+    If a download fails:
+    - Check the error message
+    - Click **Retry** to attempt again
+    - Ensure the URL is still valid
+    
+    <Tip>
+      Use the **Refresh** button to reload the downloads list if progress seems stuck.
+    </Tip>
+  </Step>
+</Steps>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card
+    title="Browser Extension"
+    icon="chrome"
+    href="/features/browser-extension"
+  >
+    Install the Chrome extension for one-click downloads from any website
+  </Card>
+  <Card
+    title="Encrypted Vault"
+    icon="lock"
+    href="/features/vault"
+  >
+    Learn how to protect sensitive downloads with PIN encryption
+  </Card>
+  <Card
+    title="Advanced Settings"
+    icon="sliders"
+    href="/configuration/settings"
+  >
+    Configure quality presets, SponsorBlock, and auto-updates
+  </Card>
+  <Card
+    title="System Integration"
+    icon="gear"
+    href="/features/system-integration"
+  >
+    Learn about system tray, notifications, and other integrations
+  </Card>
+</CardGroup>
+
+## Common First-Time Issues
+
+<AccordionGroup>
+  <Accordion title="Error: Failed to fetch media info">
+    **Cause**: yt-dlp may need an update, or the platform changed their API.
+    
+    **Solution**:
+    1. Go to **Settings** > **Download Engines**
+    2. Click **Check for Updates** under yt-dlp
+    3. If an update is available, click **Update Now**
+    4. Retry your download
+  </Accordion>
+
+  <Accordion title="Spotify downloads are slow">
+    **Cause**: SpotDL searches YouTube for each track, which takes time.
+    
+    **Expected Behavior**:
+    - Single track: 10-30 seconds to fetch
+    - Playlist: 1-5 minutes to fetch (depends on size)
+    - Downloads process in background after fetching
+    
+    <Note>
+      Large Spotify playlists (50+ tracks) may take several minutes to process. Be patient and don't close the app.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Download stalls at 99%">
+    **Cause**: FFmpeg is processing the final media file (merging audio/video, embedding metadata).
+    
+    **Solution**: Wait for the process to complete. This is normal and may take 10-60 seconds depending on file size.
+  </Accordion>
+
+  <Accordion title="Can't find downloaded file">
+    **Solution**:
+    1. Go to **Downloads** tab
+    2. Find your completed download
+    3. Click **Open Folder** to navigate directly to the file
+    
+    Or check your download path in **Settings** > **General Settings**.
+  </Accordion>
+</AccordionGroup>
+
+## Quick Tips
+
+<Tip>
+  **Minimize to System Tray**: Enable "Minimize to Tray" in Settings to keep downloads running while the app is hidden.
+</Tip>
+
+<Tip>
+  **Batch Downloads**: You can queue multiple downloads. Paste a URL, click Fetch, configure, then paste another URL without waiting for completion.
+</Tip>
+
+<Tip>
+  **Search History**: All URLs you fetch are saved in the History tab for easy re-downloading.
+</Tip>
+
+## Need Help?
+
+<Card title="Report an Issue" icon="github" href="https://github.com/SlasshyOverhere/Ownstash-Downloader/issues">
+  Found a bug or have a feature request? Open an issue on GitHub.
+</Card>

@@ -1,0 +1,377 @@
+---
+title: 'Firebase Setup'
+description: 'Optional Firebase configuration for custom deployments'
+icon: 'fire'
+---
+
+## Overview
+
+Ownstash Downloader includes **optional** Firebase integration for authentication and data synchronization. This is only needed if you're deploying your own instance or want to use custom authentication.
+
+<Note>
+  **For most users:** Firebase setup is **not required**. The default build works out-of-the-box with local storage or Google Drive sync.
+</Note>
+
+## When to Use Firebase
+
+Firebase configuration is useful for:
+
+<CardGroup cols={2}>
+  <Card title="Custom Deployments" icon="server">
+    Running your own instance with custom user management
+  </Card>
+  <Card title="Team Usage" icon="users">
+    Managing multiple users with centralized authentication
+  </Card>
+  <Card title="Advanced Features" icon="rocket">
+    Building custom features on top of Firestore
+  </Card>
+  <Card title="Development" icon="code">
+    Testing authentication flows during development
+  </Card>
+</CardGroup>
+
+## Firebase Services Used
+
+### Firebase Authentication
+
+<ParamField path="auth" type="Firebase Auth">
+  Provides user authentication with Google Sign-In and email/password.
+</ParamField>
+
+**Supported Methods:**
+- Google OAuth 2.0
+- Email/Password
+- Password reset
+
+### Cloud Firestore
+
+<ParamField path="firestore" type="Cloud Firestore">
+  NoSQL database for storing user settings and download metadata (optional).
+</ParamField>
+
+<Warning>
+  The current implementation primarily uses **Google Drive** for data storage, not Firestore. Firestore is only used for authentication state.
+</Warning>
+
+## Setup Instructions
+
+### Step 1: Create Firebase Project
+
+<Steps>
+  <Step title="Go to Firebase Console">
+    Navigate to [Firebase Console](https://console.firebase.google.com/)
+  </Step>
+  <Step title="Create New Project">
+    Click "Add project" and follow the setup wizard
+  </Step>
+  <Step title="Enable Services">
+    Enable **Authentication** and **Cloud Firestore** in your project
+  </Step>
+</Steps>
+
+### Step 2: Register Web App
+
+<Steps>
+  <Step title="Add Web App">
+    In Project Settings, click "Add app" and select Web platform
+  </Step>
+  <Step title="Register App">
+    Give your app a nickname (e.g., "Ownstash Downloader")
+  </Step>
+  <Step title="Copy Configuration">
+    Copy the Firebase configuration object provided
+  </Step>
+</Steps>
+
+### Step 3: Configure Environment Variables
+
+Create a `.env` file in the project root (or copy `.env.example`):
+
+```bash
+# Firebase Configuration
+# Get these values from Firebase Console > Project Settings > General > Your Apps
+
+VITE_FIREBASE_API_KEY=your_api_key_here
+VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project_id.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+```
+
+<Accordion title="Where to find these values">
+  1. Go to [Firebase Console](https://console.firebase.google.com/)
+  2. Select your project
+  3. Click the gear icon (⚙️) → **Project Settings**
+  4. Scroll down to "Your apps" → "SDK setup and configuration"
+  5. Select "Config" radio button
+  6. Copy each value to your `.env` file
+</Accordion>
+
+### Step 4: Enable Authentication Methods
+
+<Steps>
+  <Step title="Navigate to Authentication">
+    In Firebase Console, go to **Authentication** → **Sign-in method**
+  </Step>
+  <Step title="Enable Google Sign-In">
+    Click "Google" → Toggle "Enable" → Save
+    
+    Configure authorized domains if needed
+  </Step>
+  <Step title="Enable Email/Password (Optional)">
+    Click "Email/Password" → Toggle "Enable" → Save
+  </Step>
+</Steps>
+
+### Step 5: Configure Firestore Security Rules
+
+Set up security rules to protect user data:
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow users to read/write only their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow users to manage their download history
+    match /users/{userId}/downloads/{downloadId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow users to manage their settings
+    match /users/{userId}/settings/{settingId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+<Warning>
+  Always test your security rules before deploying to production. Use the Firebase Emulator Suite for local testing.
+</Warning>
+
+## Firebase Configuration File
+
+The Firebase configuration is loaded from environment variables:
+
+```typescript
+// src/config/firebase.ts
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize services
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+
+export default app;
+```
+
+## Authentication Flow
+
+The app uses a backend OAuth approach (not Firebase directly):
+
+```typescript
+// src/contexts/AuthContext.tsx
+import { authService } from '@/services/auth';
+
+// Sign in with Google
+const signInWithGoogle = async () => {
+  await authService.signInWithGoogle();
+};
+
+// Sign in with email/password
+const signIn = async (email: string, password: string) => {
+  await authService.signIn(email, password);
+};
+
+// Sign up
+const signUp = async (email: string, password: string, displayName?: string) => {
+  await authService.signUp(email, password, displayName);
+};
+```
+
+<Info>
+  The current implementation uses **Google OAuth** for authentication and **Google Drive** for data storage, minimizing reliance on Firebase services.
+</Info>
+
+## Google Drive vs. Firebase
+
+### Data Storage Strategy
+
+<Tabs>
+  <Tab title="Google Drive (Primary)">
+    **Current Implementation**
+    
+    User data is stored in the user's personal Google Drive:
+    
+    - Download history
+    - Settings
+    - Metadata
+    
+    **Benefits:**
+    - Privacy-first (user owns their data)
+    - No server costs
+    - No database quotas
+    - Works offline with local cache
+  </Tab>
+  <Tab title="Firebase Firestore (Optional)">
+    **Alternative Storage**
+    
+    Data stored in centralized Firestore database:
+    
+    - Centralized management
+    - Real-time sync
+    - Advanced querying
+    - Team collaboration features
+    
+    **Considerations:**
+    - Server costs (Firestore pricing)
+    - Database quotas
+    - Privacy concerns (data on external servers)
+  </Tab>
+</Tabs>
+
+## Environment Variables Reference
+
+<ParamField path="VITE_FIREBASE_API_KEY" type="string" required>
+  Firebase API key for web authentication
+  
+  **Example:** `AIzaSyC7X...`
+</ParamField>
+
+<ParamField path="VITE_FIREBASE_AUTH_DOMAIN" type="string" required>
+  Authentication domain for Firebase Auth
+  
+  **Format:** `{project-id}.firebaseapp.com`
+</ParamField>
+
+<ParamField path="VITE_FIREBASE_PROJECT_ID" type="string" required>
+  Unique Firebase project identifier
+  
+  **Example:** `ownstash-downloader`
+</ParamField>
+
+<ParamField path="VITE_FIREBASE_STORAGE_BUCKET" type="string" required>
+  Cloud Storage bucket for file uploads
+  
+  **Format:** `{project-id}.firebasestorage.app`
+</ParamField>
+
+<ParamField path="VITE_FIREBASE_MESSAGING_SENDER_ID" type="string" required>
+  Sender ID for Firebase Cloud Messaging
+  
+  **Example:** `1234567890`
+</ParamField>
+
+<ParamField path="VITE_FIREBASE_APP_ID" type="string" required>
+  Firebase app identifier
+  
+  **Example:** `1:1234567890:web:abcdef123456`
+</ParamField>
+
+## Building Without Firebase
+
+If you don't need Firebase, you can build the app without configuration:
+
+```bash
+# Build without Firebase env variables
+npm run build
+
+# The app will work with local storage only
+```
+
+<Note>
+  Missing Firebase configuration will **not** break the app. It will default to local storage mode.
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Firebase not initialized">
+    **Error:** `Firebase: No Firebase App '[DEFAULT]' has been created`
+    
+    **Cause:** Missing or invalid Firebase configuration
+    
+    **Solution:**
+    1. Verify all environment variables are set in `.env`
+    2. Ensure `.env` is in the project root
+    3. Restart the dev server (`npm run dev`)
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    **Error:** `auth/unauthorized-domain`
+    
+    **Cause:** Your domain is not authorized in Firebase Console
+    
+    **Solution:**
+    1. Go to Firebase Console → Authentication → Settings
+    2. Add your domain to "Authorized domains"
+    3. Include `localhost` for development
+  </Accordion>
+  
+  <Accordion title="Permission denied (Firestore)">
+    **Error:** `permission-denied`
+    
+    **Cause:** Firestore security rules are too restrictive
+    
+    **Solution:**
+    1. Review your Firestore security rules
+    2. Ensure rules allow authenticated users to access their data
+    3. Test rules using Firebase Emulator
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Warning>
+  **Never commit your `.env` file to version control!** Add it to `.gitignore`.
+</Warning>
+
+### Recommended Security Measures:
+
+1. **Use Environment Variables**
+   - Never hardcode credentials
+   - Use `.env` for local development
+   - Use platform environment variables for production
+
+2. **Restrict API Key**
+   - In Firebase Console, restrict your API key to specific domains
+   - Enable only necessary APIs
+
+3. **Secure Firestore Rules**
+   - Always require authentication
+   - Implement field-level validation
+   - Use security rules testing
+
+4. **Enable App Check**
+   - Protect your backend from abuse
+   - Verify requests come from your legitimate app
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Application Settings" icon="gear" href="/configuration/settings">
+    Configure storage and sync preferences
+  </Card>
+  <Card title="Google Drive Setup" icon="google-drive" href="/features/cloud-sync">
+    Learn about Google Drive integration
+  </Card>
+</CardGroup>

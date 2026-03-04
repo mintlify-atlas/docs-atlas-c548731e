@@ -1,0 +1,284 @@
+---
+title: Frontend Events
+description: Tauri events emitted from backend to frontend
+---
+
+Events are emitted from the Rust backend to the frontend using Tauri's event system.
+
+## Listening to Events
+
+Use Tauri's `listen` API to subscribe to events:
+
+```typescript
+import { listen } from '@tauri-apps/api/event'
+
+const unlisten = await listen<EventPayload>('event-name', (event) => {
+  console.log('Event received:', event.payload)
+})
+
+// Later: cleanup
+unlisten()
+```
+
+---
+
+## Download Events
+
+### download-progress
+
+Emitted during media downloads (yt-dlp).
+
+```typescript
+interface DownloadProgress {
+  id: string
+  progress: number  // 0-100
+  speed: string  // e.g., "5.2 MiB/s"
+  eta: string  // e.g., "00:45"
+  status: 'starting' | 'downloading' | 'completed' | 'failed' | 'cancelled'
+  downloaded_bytes: number | null
+  total_bytes: number | null
+  filename: string | null
+  engine_badge: string | null  // "SNDE ACCELERATED", "MEDIA ENGINE", etc.
+}
+```
+
+**Emitted by**: `start_download` command
+
+**Usage Example**:
+
+```typescript
+import { listen } from '@tauri-apps/api/event'
+
+const unlisten = await listen<DownloadProgress>('download-progress', (event) => {
+  const { id, progress, speed, eta, status, engine_badge } = event.payload
+  
+  if (status === 'downloading') {
+    console.log(`Download ${id}: ${progress.toFixed(1)}% at ${speed}, ETA ${eta}`)
+    console.log(`Engine: ${engine_badge}`)
+  } else if (status === 'completed') {
+    console.log(`Download ${id} completed!`)
+  } else if (status === 'failed') {
+    console.error(`Download ${id} failed`)
+  }
+})
+```
+
+**Status Flow**:
+
+1. `starting` - Download initialized
+2. `downloading` - Active download with progress updates
+3. `completed` | `failed` | `cancelled` - Terminal states
+
+---
+
+### spotify-download-progress
+
+Emitted during Spotify downloads.
+
+```typescript
+interface SpotifyDownloadProgress {
+  id: string
+  progress: number  // 0-100
+  status: 'downloading' | 'completed' | 'failed' | 'cancelled'
+  current_track: string | null  // e.g., "Artist - Song Name"
+  total_tracks: number | null
+  completed_tracks: number | null
+  speed: string  // e.g., "Track 2/10"
+}
+```
+
+**Emitted by**: `start_spotify_download` command
+
+**Usage Example**:
+
+```typescript
+await listen<SpotifyDownloadProgress>('spotify-download-progress', (event) => {
+  const { id, progress, current_track, completed_tracks, total_tracks } = event.payload
+  
+  console.log(`[${id}] ${progress.toFixed(1)}%`)
+  console.log(`Track: ${current_track}`)
+  console.log(`Progress: ${completed_tracks}/${total_tracks}`)
+})
+```
+
+---
+
+## Vault Events
+
+### vault-download-progress
+
+Emitted when directly downloading to vault.
+
+```typescript
+interface VaultDownloadProgress {
+  id: string
+  progress: number  // 0-100
+  speed: string
+  eta: string
+  status: 'downloading' | 'encrypting' | 'completed' | 'failed' | 'cancelled'
+  downloaded_bytes: number | null
+  total_bytes: number | null
+}
+```
+
+**Emitted by**: `vault_direct_download` command
+
+**Usage Example**:
+
+```typescript
+await listen<VaultDownloadProgress>('vault-download-progress', (event) => {
+  const { id, progress, status } = event.payload
+  
+  if (status === 'encrypting') {
+    console.log('Encrypting downloaded file...')
+  } else if (status === 'completed') {
+    console.log('File encrypted and added to vault')
+  }
+})
+```
+
+**Status Flow**:
+
+1. `downloading` - Downloading from URL
+2. `encrypting` - Encrypting file with vault PIN
+3. `completed` | `failed` | `cancelled` - Terminal states
+
+---
+
+## Extension Events
+
+### extension-download-request
+
+Emitted when Chrome extension sends a download URL via deep link.
+
+```typescript
+type ExtensionDownloadRequest = string  // URL to download
+```
+
+**Emitted by**: Deep link handler (`ownstash://download?url=...`)
+
+**Usage Example**:
+
+```typescript
+await listen<string>('extension-download-request', (event) => {
+  const url = event.payload
+  console.log(`Extension requested download: ${url}`)
+  
+  // Fetch media info and show download modal
+  const info = await invoke('get_media_info', { url })
+  // ...
+})
+```
+
+---
+
+### oauth-deep-link
+
+Emitted when OAuth callback is received (e.g., Google Drive auth).
+
+```typescript
+type OAuthDeepLink = string  // Full callback URL with tokens
+```
+
+**Emitted by**: Deep link handler (`ownstash://auth?...`)
+
+**Usage Example**:
+
+```typescript
+await listen<string>('oauth-deep-link', (event) => {
+  const callbackUrl = event.payload
+  console.log('OAuth callback received')
+  
+  // Extract access token from URL
+  const url = new URL(callbackUrl)
+  const accessToken = url.searchParams.get('access_token')
+  
+  if (accessToken) {
+    // Save token and complete auth flow
+  }
+})
+```
+
+---
+
+## Event Patterns
+
+### Progress Events
+
+All `*-progress` events follow a similar pattern:
+
+1. **Frequent Updates**: Emitted every ~200ms during active operations
+2. **Progress Field**: Always 0-100 range
+3. **Status Field**: Indicates current state
+4. **Terminal States**: `completed`, `failed`, `cancelled` indicate operation end
+
+### Event Cleanup
+
+Always unlisten when component unmounts:
+
+```typescript
+import { useEffect } from 'react'
+import { listen } from '@tauri-apps/api/event'
+
+useEffect(() => {
+  let unlisten: (() => void) | null = null
+  
+  listen<DownloadProgress>('download-progress', (event) => {
+    // Handle event
+  }).then(fn => {
+    unlisten = fn
+  })
+  
+  return () => {
+    unlisten?.()
+  }
+}, [])
+```
+
+### Multiple Downloads
+
+Use the `id` field to track multiple concurrent operations:
+
+```typescript
+const activeDownloads = new Map<string, DownloadProgress>()
+
+await listen<DownloadProgress>('download-progress', (event) => {
+  const { id, status } = event.payload
+  
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    activeDownloads.delete(id)
+  } else {
+    activeDownloads.set(id, event.payload)
+  }
+  
+  console.log(`${activeDownloads.size} active downloads`)
+})
+```
+
+---
+
+## Error Handling
+
+Events with `status: 'failed'` indicate errors. The frontend should:
+
+1. Check the download status
+2. Show error notification
+3. Remove from active downloads list
+4. Clean up UI state
+
+```typescript
+await listen<DownloadProgress>('download-progress', (event) => {
+  if (event.payload.status === 'failed') {
+    toast.error(`Download failed: ${event.payload.id}`)
+    // Clean up UI
+  }
+})
+```
+
+---
+
+## Related
+
+- [Download Commands](/api/commands/downloads) - Start downloads
+- [Spotify Commands](/api/commands/spotify) - Spotify downloads
+- [Vault Commands](/api/commands/vault) - Encrypted storage
