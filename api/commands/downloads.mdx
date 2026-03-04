@@ -369,6 +369,112 @@ console.log(`Size: ${(info.file_size / 1024 / 1024).toFixed(2)} MB`)
 console.log(`Type: ${info.content_type}`)
 ```
 
+
+## add_download
+
+Add a download record to the database queue.
+
+<ParamField path="download" type="Download" required>
+  Complete download object with all metadata
+  
+  <Expandable title="Download properties">
+    <ParamField path="id" type="string" required>
+      Unique download ID (UUID)
+    </ParamField>
+    
+    <ParamField path="title" type="string" required>
+      Media title
+    </ParamField>
+    
+    <ParamField path="url" type="string" required>
+      Source URL
+    </ParamField>
+    
+    <ParamField path="format" type="string" required>
+      Download format (e.g., "video", "audio")
+    </ParamField>
+    
+    <ParamField path="path" type="string" required>
+      Destination file path
+    </ParamField>
+    
+    <ParamField path="timestamp" type="number" required>
+      Unix timestamp (milliseconds)
+    </ParamField>
+    
+    <ParamField path="status" type="string" required>
+      Download status: "pending", "downloading", "completed", "failed"
+    </ParamField>
+    
+    <ParamField path="size_bytes" type="number | null">
+      File size in bytes (if known)
+    </ParamField>
+    
+    <ParamField path="platform" type="string | null">
+      Platform name (e.g., "YouTube", "Spotify")
+    </ParamField>
+    
+    <ParamField path="thumbnail" type="string | null">
+      Thumbnail URL
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Usage Example
+
+```typescript
+await invoke('add_download', {
+  download: {
+    id: crypto.randomUUID(),
+    title: 'My Video',
+    url: 'https://youtube.com/watch?v=...',
+    format: 'video',
+    path: '/downloads/my-video.mp4',
+    timestamp: Date.now(),
+    status: 'pending',
+    size_bytes: null,
+    platform: 'YouTube',
+    thumbnail: 'https://...'
+  }
+})
+```
+
+---
+
+## delete_download
+
+Remove a download from the queue/history by ID.
+
+<ParamField path="id" type="string" required>
+  Download ID to delete
+</ParamField>
+
+### Usage Example
+
+```typescript
+await invoke('delete_download', { id: 'download-uuid-here' })
+```
+
+<Note>
+This only removes the database record. It does not delete the downloaded file from disk.
+</Note>
+
+---
+
+## clear_downloads
+
+Clear all downloads from the queue/history.
+
+### Usage Example
+
+```typescript
+await invoke('clear_downloads')
+```
+
+<Warning>
+This removes all download records from the database. Downloaded files remain on disk.
+</Warning>
+
 ---
 
 ## Related
